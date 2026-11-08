@@ -308,3 +308,57 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Keep dense research content inside narrow phone viewports. */
+html, body, #root { max-width: 100%; }
+.app-shell, .main, .content, .anchor-section { min-width: 0; }
+.content > *, .section-heading > *, .intelligence-grid > *, .stats-grid > *,
+.research-workflow > *, .research-subsection > *, .document-list > *,
+.financial-row > *, .position-row > *, .watchlist-row > * { min-width: 0; }
+.research-answer, .source-citation, .source-citation summary, .promise-card,
+.promise-card small, .document-list, .document-list small, .announcement-details,
+.announcement-subject, .why, .financial-row details, .financial-row blockquote {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.topbar, .content { max-width: 100%; }
+.threshold-panel input, .upload-panel input, .upload-panel select,
+.question-panel input, .question-panel select, .financial-entry input,
+.financial-entry select, .promise-entry input, .promise-entry select,
+.file-picker { width: 100%; min-width: 0; }
+
+@media (max-width: 720px) {
+  html, body { overflow-x: clip; }
+  .content { padding: 22px 16px 30px; }
+  .topbar { padding-right: 16px; padding-left: 16px; }
+  .greeting { gap: 12px; }
+  .greeting > div { min-width: 0; }
+  .greeting h1 { font-size: clamp(26px, 7vw, 30px); }
+  .greeting p { max-width: 36ch; line-height: 1.55; }
+  .date-button { justify-content: center; }
+  .stat-card, .alert-card, .announcement-card, .research-answer,
+  .question-panel, .financial-table, .promise-card { border-radius: 12px; }
+  .section-heading { width: 100%; }
+  .section-heading > div { width: 100%; }
+  .section-heading h2, .research-subsection h3 { line-height: 1.3; }
+  .section-heading p { max-width: 48ch; line-height: 1.55; }
+  .document-list > div { display: grid; gap: 5px; }
+  .document-list > div > span { min-width: 0; overflow-wrap: anywhere; }
+  .source-citation summary { line-height: 1.55; }
+  .source-citation blockquote, .promise-card blockquote { margin-right: 0; margin-left: 0; }
+  .upload-panel input[type="file"] { font-size: 11px; }
+  .financial-row > span small { display: block; font-size: 9px; line-height: 1.4; overflow-wrap: anywhere; }
+  .position-company b { overflow-wrap: anywhere; }
+  .position-actions { flex-wrap: wrap; }
+  .mobile-nav { padding-right: max(8px, env(safe-area-inset-right)); padding-left: max(8px, env(safe-area-inset-left)); }
+}
+
+@media (max-width: 380px) {
+  .content { padding-right: 13px; padding-left: 13px; }
+  .stats-grid { gap: 7px; }
+  .stat-card { padding: 12px 10px; }
+  .upload-panel, .financial-entry, .promise-entry { grid-template-columns: minmax(0, 1fr); }
+  .upload-panel label, .upload-panel button, .file-picker,
+  .financial-excerpt, .promise-quote, .financial-entry button, .promise-entry button { grid-column: 1 / -1; }
+  .mobile-nav button { min-width: 54px; }
+}
