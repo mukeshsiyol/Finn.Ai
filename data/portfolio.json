@@ -1,0 +1,27 @@
+{
+  "as_of": "demo-fixture",
+  "notice": "Company universe for product demonstration only; not an investment recommendation.",
+  "companies": [
+    {"name":"Reliance Industries","ticker":"RELIANCE.NS","sector":"Energy / Retail"},
+    {"name":"TCS","ticker":"TCS.NS","sector":"IT"},
+    {"name":"Infosys","ticker":"INFY.NS","sector":"IT"},
+    {"name":"HDFC Bank","ticker":"HDFCBANK.NS","sector":"Banking"},
+    {"name":"ICICI Bank","ticker":"ICICIBANK.NS","sector":"Banking"},
+    {"name":"SBI","ticker":"SBIN.NS","sector":"Banking"},
+    {"name":"Larsen & Toubro","ticker":"LT.NS","sector":"Infrastructure"},
+    {"name":"Tata Motors Passenger Vehicles","ticker":"TMPV.NS","sector":"Automobile"},
+    {"name":"Mahindra & Mahindra","ticker":"M&M.NS","sector":"Automobile"},
+    {"name":"Sun Pharma","ticker":"SUNPHARMA.NS","sector":"Pharmaceuticals"},
+    {"name":"Cipla","ticker":"CIPLA.NS","sector":"Pharmaceuticals"},
+    {"name":"ITC","ticker":"ITC.NS","sector":"FMCG"},
+    {"name":"Hindustan Unilever","ticker":"HINDUNILVR.NS","sector":"FMCG"},
+    {"name":"Bharti Airtel","ticker":"BHARTIARTL.NS","sector":"Telecom"},
+    {"name":"NTPC","ticker":"NTPC.NS","sector":"Power"},
+    {"name":"Tata Steel","ticker":"TATASTEEL.NS","sector":"Metals"},
+    {"name":"Asian Paints","ticker":"ASIANPAINT.NS","sector":"Consumer"},
+    {"name":"BEL","ticker":"BEL.NS","sector":"Defence"},
+    {"name":"Eternal (formerly Zomato)","ticker":"ETERNAL.NS","sector":"Consumer technology"},
+    {"name":"Maruti Suzuki","ticker":"MARUTI.NS","sector":"Automobile"}
+  ],
+  "research_only": ["Adani Enterprises", "Titan", "Trent", "Bajaj Finance", "Coal India"]
+}

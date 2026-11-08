@@ -1,0 +1,681 @@
+[
+  {
+    "ticker": "TITAN",
+    "period": "FY2026-Q2",
+    "metric": "revenue",
+    "value": 18725.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2026-Q2",
+    "metric": "pbt",
+    "value": 1522.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2026-Q2",
+    "metric": "pat",
+    "value": 1120.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q1",
+    "metric": "revenue",
+    "value": 21356.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q1",
+    "metric": "pbt",
+    "value": 2429.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q1",
+    "metric": "pat",
+    "value": 1777.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q2",
+    "metric": "revenue",
+    "value": 20614.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q2",
+    "metric": "pbt",
+    "value": 3000.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "TITAN",
+    "period": "FY2027-Q2",
+    "metric": "pat",
+    "value": 2393.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "b118e32d-22ac-42e6-ab0f-88c6a1eb736a",
+      "filename": "TITAN_Q2_FY27_Results.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 10,
+      "excerpt": "Titan consolidated statement, ₹ crore; columns Q2 FY27 / Q1 FY27 / Q2 FY26. Revenue from operations: 20,614 / 21,356 / 18,725 (sale of products/services plus other operating revenue). Profit before tax: 3,000 / 2,429 / 1,522. Profit for the period (PAT): 2,393 / 1,777 / 1,120. Source PDF page 10."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q3",
+    "metric": "revenue",
+    "value": 267186.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY25: Gross Revenue 267,186; EBITDA 48,003; Profit Before Tax 28,643; Profit After Tax 21,804."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q3",
+    "metric": "ebitda",
+    "value": 48003.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY25: Gross Revenue 267,186; EBITDA 48,003; Profit Before Tax 28,643; Profit After Tax 21,804."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q3",
+    "metric": "pbt",
+    "value": 28643.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY25: Gross Revenue 267,186; EBITDA 48,003; Profit Before Tax 28,643; Profit After Tax 21,804."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q3",
+    "metric": "pat",
+    "value": 21804.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY25: Gross Revenue 267,186; EBITDA 48,003; Profit Before Tax 28,643; Profit After Tax 21,804."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q4",
+    "metric": "revenue",
+    "value": 288138.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY25: Gross Revenue 288,138; EBITDA 48,737; Profit Before Tax 29,103; Profit After Tax 22,434."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q4",
+    "metric": "ebitda",
+    "value": 48737.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY25: Gross Revenue 288,138; EBITDA 48,737; Profit Before Tax 29,103; Profit After Tax 22,434."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q4",
+    "metric": "pbt",
+    "value": 29103.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY25: Gross Revenue 288,138; EBITDA 48,737; Profit Before Tax 29,103; Profit After Tax 22,434."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2025-Q4",
+    "metric": "pat",
+    "value": 22434.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY25: Gross Revenue 288,138; EBITDA 48,737; Profit Before Tax 29,103; Profit After Tax 22,434."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q1",
+    "metric": "revenue",
+    "value": 273252.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY26: Gross Revenue 273,252; EBITDA 49,100 (excluding ₹8,924 crore gain on sale of listed investments); Profit Before Tax 28,222; Profit After Tax 21,757."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q1",
+    "metric": "ebitda",
+    "value": 49100.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY26: Gross Revenue 273,252; EBITDA 49,100 (excluding ₹8,924 crore gain on sale of listed investments); Profit Before Tax 28,222; Profit After Tax 21,757."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q1",
+    "metric": "pbt",
+    "value": 28222.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY26: Gross Revenue 273,252; EBITDA 49,100 (excluding ₹8,924 crore gain on sale of listed investments); Profit Before Tax 28,222; Profit After Tax 21,757."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q1",
+    "metric": "pat",
+    "value": 21757.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY26: Gross Revenue 273,252; EBITDA 49,100 (excluding ₹8,924 crore gain on sale of listed investments); Profit Before Tax 28,222; Profit After Tax 21,757."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q2",
+    "metric": "revenue",
+    "value": 283548.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY26: Gross Revenue 283,548; EBITDA 50,367; Profit Before Tax 29,124; Profit After Tax 22,146."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q2",
+    "metric": "ebitda",
+    "value": 50367.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY26: Gross Revenue 283,548; EBITDA 50,367; Profit Before Tax 29,124; Profit After Tax 22,146."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q2",
+    "metric": "pbt",
+    "value": 29124.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY26: Gross Revenue 283,548; EBITDA 50,367; Profit Before Tax 29,124; Profit After Tax 22,146."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q2",
+    "metric": "pat",
+    "value": 22146.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY26: Gross Revenue 283,548; EBITDA 50,367; Profit Before Tax 29,124; Profit After Tax 22,146."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q3",
+    "metric": "revenue",
+    "value": 293829.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY26: Gross Revenue 293,829; EBITDA 50,932; Profit Before Tax 29,697; Profit After Tax 22,167."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q3",
+    "metric": "ebitda",
+    "value": 50932.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY26: Gross Revenue 293,829; EBITDA 50,932; Profit Before Tax 29,697; Profit After Tax 22,167."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q3",
+    "metric": "pbt",
+    "value": 29697.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY26: Gross Revenue 293,829; EBITDA 50,932; Profit Before Tax 29,697; Profit After Tax 22,167."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q3",
+    "metric": "pat",
+    "value": 22167.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "4cb03784-db11-4382-836b-64c2d00125f3",
+      "source_url": "https://www.ril.com/sites/default/files/2026-01/Media_Release_RIL_Q3_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q3_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q3 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q3 FY26: Gross Revenue 293,829; EBITDA 50,932; Profit Before Tax 29,697; Profit After Tax 22,167."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q4",
+    "metric": "revenue",
+    "value": 325290.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY26: Gross Revenue 325,290; EBITDA 48,588; Profit Before Tax 27,195; Profit After Tax 20,616."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q4",
+    "metric": "ebitda",
+    "value": 48588.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY26: Gross Revenue 325,290; EBITDA 48,588; Profit Before Tax 27,195; Profit After Tax 20,616."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q4",
+    "metric": "pbt",
+    "value": 27195.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY26: Gross Revenue 325,290; EBITDA 48,588; Profit Before Tax 27,195; Profit After Tax 20,616."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2026-Q4",
+    "metric": "pat",
+    "value": 20616.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "06780337-e51f-4c89-a5d0-b5e11d7a8130",
+      "source_url": "https://www.ril.com/sites/default/files/2026-04/24042026_Media_Release_RIL_Q4_FY2025-26_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q4_FY26.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q4 FY2026",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q4 FY26: Gross Revenue 325,290; EBITDA 48,588; Profit Before Tax 27,195; Profit After Tax 20,616."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q1",
+    "metric": "revenue",
+    "value": 340257.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY27: Gross Revenue 340,257; EBITDA 54,067; Profit Before Tax 30,630; Profit After Tax 23,001."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q1",
+    "metric": "ebitda",
+    "value": 54067.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY27: Gross Revenue 340,257; EBITDA 54,067; Profit Before Tax 30,630; Profit After Tax 23,001."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q1",
+    "metric": "pbt",
+    "value": 30630.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY27: Gross Revenue 340,257; EBITDA 54,067; Profit Before Tax 30,630; Profit After Tax 23,001."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q1",
+    "metric": "pat",
+    "value": 23001.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "bacd1b3f-f496-4a97-ae52-63caf8d9da8a",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-07/Media_Release_RIL_Q1_FY2026-27_Financial_and_Operational_Performance.pdf",
+      "filename": "RIL_Q1_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q1 FY2027",
+      "page": 1,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q1 FY27: Gross Revenue 340,257; EBITDA 54,067; Profit Before Tax 30,630; Profit After Tax 23,001."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q2",
+    "metric": "revenue",
+    "value": 362268.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY27: Gross Revenue 362,268; EBITDA 62,409; Profit Before Tax 38,613; Profit After Tax 29,250."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q2",
+    "metric": "ebitda",
+    "value": 62409.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY27: Gross Revenue 362,268; EBITDA 62,409; Profit Before Tax 38,613; Profit After Tax 29,250."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q2",
+    "metric": "pbt",
+    "value": 38613.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY27: Gross Revenue 362,268; EBITDA 62,409; Profit Before Tax 38,613; Profit After Tax 29,250."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q2",
+    "metric": "pat",
+    "value": 29250.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 2,
+      "excerpt": "Reliance consolidated financial highlights, ₹ crore; Q2 FY27: Gross Revenue 362,268; EBITDA 62,409; Profit Before Tax 38,613; Profit After Tax 29,250."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q1",
+    "metric": "o2c_ebitda",
+    "value": 17010.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 14,
+      "excerpt": "Reliance O2C Segment, ₹ crore; Q2 FY27 EBITDA 25,203; Q1 FY27 EBITDA 17,010; Q2 FY26 EBITDA 15,008."
+    }
+  },
+  {
+    "ticker": "RELIANCE",
+    "period": "FY2027-Q2",
+    "metric": "o2c_ebitda",
+    "value": 25203.0,
+    "unit": "₹ crore",
+    "source": {
+      "document_id": "026a7f7d-deeb-4077-a28a-c590ec185240",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_MR.pdf",
+      "filename": "RIL_Q2_FY27.pdf",
+      "document_type": "Quarterly results",
+      "reporting_period": "Q2 FY2027",
+      "page": 14,
+      "excerpt": "Reliance O2C Segment, ₹ crore; Q2 FY27 EBITDA 25,203; Q1 FY27 EBITDA 17,010; Q2 FY26 EBITDA 15,008."
+    }
+  }
+]

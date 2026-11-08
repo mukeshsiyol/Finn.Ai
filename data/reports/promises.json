@@ -1,0 +1,19 @@
+[
+  {
+    "id": "RELIANCE-FY2027-Q2-annualized_o2c_ebitda",
+    "ticker": "RELIANCE",
+    "metric": "annualized_o2c_ebitda",
+    "target_period": "FY2027-Q2",
+    "target_value": 80000.0,
+    "unit": "₹ crore annualized",
+    "quote": "H1 FY27 performance tracking annualized EBITDA of over ₹ 80,000 crore.",
+    "source": {
+      "document_id": "7dfa9862-1431-4397-9d36-ec9671467a8b",
+      "source_url": "https://rilstaticasset.akamaized.net/sites/default/files/2026-10/SE_30102026_IP.pdf",
+      "filename": "RIL_Q2_FY27_Presentation.pdf",
+      "document_type": "Investor presentation",
+      "reporting_period": "Q2 FY2027",
+      "page": 7
+    }
+  }
+]
