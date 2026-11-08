@@ -127,18 +127,6 @@ function App() {
     fetch(`${API}/api/settings/alerts`).then(response => response.ok ? response.json() : null).then(value => value && setSettings(value)).catch(() => undefined)
   }, [])
 
-  useEffect(() => {
-    const targets = nav.map(item => ({ label: item.label, element: document.getElementById(item.target) })).filter(item => item.element)
-    if (!('IntersectionObserver' in window)) return
-    const observer = new IntersectionObserver(entries => {
-      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
-      const current = targets.find(item => item.element === visible?.target)
-      if (current) setActive(current.label)
-    }, { rootMargin: '-72px 0px -58% 0px', threshold: [0, 0.15, 0.35, 0.6] })
-    targets.forEach(item => item.element && observer.observe(item.element))
-    return () => observer.disconnect()
-  }, [])
-
   const filteredCompanies = useMemo(() => {
     const list = portfolio?.companies ?? []
     const search = query.trim().toLowerCase()
