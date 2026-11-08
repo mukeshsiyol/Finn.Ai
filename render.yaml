@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: finn-ai
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: FINN_LLM_PROVIDER
+        value: openrouter
+      - key: FINN_OPENROUTER_MODEL
+        value: openrouter/auto
+      - key: OPENROUTER_API_KEY
+        sync: false

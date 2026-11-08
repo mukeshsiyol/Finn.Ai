@@ -12,6 +12,8 @@ import yfinance as yf
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.services.announcements.nse_client import fetch_portfolio_announcements
@@ -588,6 +590,16 @@ def bull_bear_analysis(request: BullBearRequest) -> dict:
         return {"ticker": ticker, "mode": "evidence_only", "answer": "FINN could not verify the generated citations, so it is withholding the synthesis. Review the retrieved primary-source pages below.", "sources": sources, "ai_generated": False}
     return {"ticker": ticker, "mode": "ai_grounded", "answer": answer, "sources": sources, "cited_source_ids": sorted(cited_ids), "ai_generated": True}
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"name": "FINN", "message": "Investment intelligence API foundation"}
+WEB_DIST = ROOT / "frontend" / "dist"
+if WEB_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="frontend-assets")
+
+    @app.get("/")
+    def root() -> FileResponse:
+        return FileResponse(WEB_DIST / "index.html")
+
+    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="frontend")
+else:
+    @app.get("/")
+    def root() -> dict[str, str]:
+        return {"name": "FINN", "message": "Investment intelligence API foundation"}

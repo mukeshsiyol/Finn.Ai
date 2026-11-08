@@ -69,3 +69,9 @@ Uploads, extracted page text, research figures, commitments, and alert threshold
 ## AI configuration
 
 Copy `backend/.env.example` to `backend/.env`. OpenRouter is the configured hosted provider: set `OPENROUTER_API_KEY` and keep `FINN_OPENROUTER_MODEL=openrouter/auto` to let its Auto router select a model. FINN calls OpenRouter's OpenAI-compatible chat completions endpoint. The routed model and its use are subject to OpenRouter account pricing and limits. If both OpenRouter and OpenAI keys are set, OpenRouter takes precedence. Direct OpenAI remains available through `OPENAI_API_KEY` and `FINN_OPENAI_MODEL`. For local synthesis without a hosted API key, install Ollama, pull a model, then set `FINN_LLM_PROVIDER=ollama`, `FINN_OLLAMA_BASE_URL=http://127.0.0.1:11434`, and `FINN_OLLAMA_MODEL` to the exact installed model tag. Never commit `backend/.env`.
+
+## Deploy to Render
+
+The repository includes a Render Blueprint (`render.yaml`) and a multi-stage Dockerfile. The single web service serves the built React app and FastAPI API from the same origin, so browser API calls need no separate CORS or frontend URL configuration. In Render, create a new Blueprint from this repository and select the `main` branch. Set `OPENROUTER_API_KEY` in the Blueprint prompt or service environment settings; the app still runs its local evidence workflow if the key is omitted. Rotate any key previously pasted into chat before adding it to Render.
+
+The Blueprint uses Render's free web-service plan for a low-cost demo. Free services can sleep while idle, and their filesystem is ephemeral: uploaded PDFs and newly entered research/commitment data can be lost after a restart or redeploy. The seeded reports are included in the image and return on each deploy. For retained uploads and edits, switch to a paid web service and attach a persistent disk, then configure the app's data paths to use that disk before relying on it for saved user data.
