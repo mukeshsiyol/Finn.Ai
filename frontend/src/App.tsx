@@ -186,6 +186,12 @@ function App() {
     window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
+  function selectSubview<T extends string>(setSubview: (value: T) => void, value: T) {
+    setSubview(value)
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
+  }
+
   async function updateSettings(event: any) {
     event.preventDefault()
     setSettingsMessage('Saving…')
@@ -383,7 +389,7 @@ function App() {
       <div className="page-view" key={active}>
       {active==='Home'&&<>
         <div className="eyebrow"><span>INVESTMENT PORTFOLIO</span><i/> MARKET INTELLIGENCE</div>
-        <section className="greeting"><div><h1>Market overview</h1><p>Portfolio performance, company filings, and unusual market activity in one place.</p></div><button className="date-button" onClick={()=>void loadPortfolio(true)} disabled={refreshing}>{refreshing?'Refreshing…':'Refresh prices'} <RefreshCw size={13}/></button></section>
+        <section className="greeting"><div><h1>Market overview</h1><p>A quick view of your holdings, daily P&amp;L, and market signals.</p></div><div className="greeting-actions">{heldCompanies.length===0&&<button className="demo-load-button" onClick={addDemoPositions} disabled={!portfolio}>Load labelled demo portfolio</button>}<button className="date-button" onClick={()=>void loadPortfolio(true)} disabled={refreshing}>{refreshing?'Refreshing…':'Refresh prices'} <RefreshCw size={13}/></button></div></section>
         {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
         <section className="stats-grid">
           <article className="stat-card portfolio-stat"><div className="stat-heading">Portfolio market value <span className="subtle">{heldCompanies.length ? `${pricedHoldings.length}/${heldCompanies.length} PRICED` : 'ADD HOLDINGS'}</span></div><div className="stat-value">{heldCompanies.length ? money(marketValue) : '—'}</div><div className="stat-foot"><span>{heldCompanies.length ? `${heldCompanies.length} positions · ${portfolio?.source ?? 'Market source pending'}` : 'Enter the shares you actually own'}</span><span>{portfolio?new Date(portfolio.retrieved_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'}):'—'}</span></div></article>
@@ -401,8 +407,8 @@ function App() {
         <div className="eyebrow"><span>PUSH INTELLIGENCE</span><i/> FILINGS & MARKET SIGNALS</div>
         <section className="greeting page-greeting"><div><h1>Alerts</h1><p>Exchange filings and unusual market activity, with source links and context.</p></div></section>
         <div className="page-tabs" role="tablist" aria-label="Alert views">
-          <button role="tab" aria-selected={alertsTab==='filings'} className={alertsTab==='filings'?'active':''} onClick={()=>setAlertsTab('filings')}>Company filings</button>
-          <button role="tab" aria-selected={alertsTab==='market'} className={alertsTab==='market'?'active':''} onClick={()=>setAlertsTab('market')}>Price & volume</button>
+          <button role="tab" aria-selected={alertsTab==='filings'} className={alertsTab==='filings'?'active':''} onClick={()=>selectSubview(setAlertsTab,'filings')}>Company filings</button>
+          <button role="tab" aria-selected={alertsTab==='market'} className={alertsTab==='market'?'active':''} onClick={()=>selectSubview(setAlertsTab,'market')}>Price & volume</button>
         </div>
         {alertsTab==='filings'&&<>
         <section id="alerts" className="anchor-section">
@@ -427,10 +433,10 @@ function App() {
         <div className="eyebrow"><span>PULL RESEARCH</span><i/> EVIDENCE WITH SOURCES</div>
         <section className="greeting page-greeting"><div><h1>Company research</h1><p>Search company filings and reports, then review answers with document and page citations.</p></div></section>
         <div className="page-tabs" role="tablist" aria-label="Research tools">
-          <button role="tab" aria-selected={researchTab==='ask'} className={researchTab==='ask'?'active':''} onClick={()=>setResearchTab('ask')}>Ask FINN</button>
-          <button role="tab" aria-selected={researchTab==='financials'} className={researchTab==='financials'?'active':''} onClick={()=>setResearchTab('financials')}>Financials</button>
-          <button role="tab" aria-selected={researchTab==='commitments'} className={researchTab==='commitments'?'active':''} onClick={()=>setResearchTab('commitments')}>Commitments</button>
-          <button role="tab" aria-selected={researchTab==='analysis'} className={researchTab==='analysis'?'active':''} onClick={()=>setResearchTab('analysis')}>Bull vs bear</button>
+          <button role="tab" aria-selected={researchTab==='ask'} className={researchTab==='ask'?'active':''} onClick={()=>selectSubview(setResearchTab,'ask')}>Ask FINN</button>
+          <button role="tab" aria-selected={researchTab==='financials'} className={researchTab==='financials'?'active':''} onClick={()=>selectSubview(setResearchTab,'financials')}>Financials</button>
+          <button role="tab" aria-selected={researchTab==='commitments'} className={researchTab==='commitments'?'active':''} onClick={()=>selectSubview(setResearchTab,'commitments')}>Commitments</button>
+          <button role="tab" aria-selected={researchTab==='analysis'} className={researchTab==='analysis'?'active':''} onClick={()=>selectSubview(setResearchTab,'analysis')}>Bull vs bear</button>
         </div>
         <section className="research-workflow anchor-section" id="research"><div className="section-heading"><div><h2>Primary-source company research</h2><p>Upload an annual report or earnings-call transcript, then ask a question with page citations.</p></div><span className="market-source">{aiEnabled?`${aiProvider} available`:'Local retrieval active'}</span></div>
           <div className="research-pane" hidden={researchTab!=='ask'}>
@@ -458,6 +464,7 @@ function App() {
               {bullBear&&<div className="research-answer"><div className="answer-heading"><Sparkles size={16}/><b>{bullBear.mode==='ai_grounded'?'AI bull vs bear analysis':bullBear.mode==='local_analysis'?'Local bull vs bear analysis':'Evidence for bull and bear review'}</b></div><p>{bullBear.answer}</p>{bullBear.sources.map(source=><details className="source-citation" key={source.id} open><summary>[{source.id}] {source.filename} · {source.document_type} · {source.reporting_period} · p. {source.page}</summary><blockquote>{source.excerpt}</blockquote></details>)}</div>}
             </div>
           </>}
+          {!selectedDocument&&researchTab!=='ask'&&<div className="state-card research-empty"><b>Add a source document to continue</b><p>Upload an annual report, quarterly result, or concall transcript in Ask FINN. The financial comparison, commitment tracker, and bull vs bear review will appear here after indexing.</p><button className="link-button" onClick={()=>setResearchTab('ask')}>Go to Ask FINN <ArrowRight size={14}/></button></div>}
         </section>
       </>}
 
@@ -465,8 +472,8 @@ function App() {
         <div className="eyebrow"><span>PORTFOLIO WORKSPACE</span><i/> HOLDINGS & WATCHLIST</div>
         <section className="greeting page-greeting"><div><h1>Portfolio</h1><p>Track positions, check available market prices, and manage the company watchlist.</p></div></section>
         <div className="page-tabs" role="tablist" aria-label="Portfolio views">
-          <button role="tab" aria-selected={portfolioTab==='holdings'} className={portfolioTab==='holdings'?'active':''} onClick={()=>setPortfolioTab('holdings')}>Holdings</button>
-          <button role="tab" aria-selected={portfolioTab==='watchlist'} className={portfolioTab==='watchlist'?'active':''} onClick={()=>setPortfolioTab('watchlist')}>Watchlist <span>{portfolio?.companies.length ?? 20}</span></button>
+          <button role="tab" aria-selected={portfolioTab==='holdings'} className={portfolioTab==='holdings'?'active':''} onClick={()=>selectSubview(setPortfolioTab,'holdings')}>Holdings</button>
+          <button role="tab" aria-selected={portfolioTab==='watchlist'} className={portfolioTab==='watchlist'?'active':''} onClick={()=>selectSubview(setPortfolioTab,'watchlist')}>Watchlist <span>{portfolio?.companies.length ?? 20}</span></button>
         </div>
         <section id="portfolio" className="portfolio-preview anchor-section">
           <div hidden={portfolioTab!=='holdings'}>
