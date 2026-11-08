@@ -170,10 +170,10 @@ function App() {
     return sum + holdings[company.ticker].shares * (company.price - previousClose)
   }, 0)
 
-  function navigate(label: string, target: string) {
+  function navigate(label: string, _target: string) {
     setActive(label)
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    document.getElementById(target)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
   async function updateSettings(event: any) {
@@ -364,12 +364,14 @@ function App() {
       <div className="workspace-label">WORKSPACE</div>
       <div className="workspace"><div className="workspace-icon">A</div><span>Analyst workspace</span><ChevronDown size={15}/></div>
       <div className="nav-label">OVERVIEW</div>
-      <nav>{nav.map(({label,icon:Icon,target})=><button key={label} className={`nav-item ${active===label?'selected':''}`} onClick={()=>navigate(label,target)}><Icon size={18}/><span>{label}</span>{label==='Alerts'&&portfolio&&<b>{String(portfolio.alert_count + announcements.filter(item=>item.priority==='high').length).padStart(2,'0')}</b>}</button>)}</nav>
+      <nav>{nav.map(({label,icon:Icon,target})=><button key={label} aria-current={active===label?'page':undefined} className={`nav-item ${active===label?'selected':''}`} onClick={()=>navigate(label,target)}><Icon size={18}/><span>{label}</span>{label==='Alerts'&&portfolio&&<b>{String(portfolio.alert_count + announcements.filter(item=>item.priority==='high').length).padStart(2,'0')}</b>}</button>)}</nav>
       <div className="sidebar-bottom"><div className="source-note"><ShieldCheck size={17}/><span>Evidence first<br/><small>Claims cite their source</small></span></div><div className="profile"><span className="avatar">A</span><span>Analyst workspace<small>Demo universe</small></span><ChevronDown size={15}/></div></div>
     </aside>
     <main className="main">
       <header className="topbar"><div className="crumb">FINN <span>/</span> {active.toUpperCase()}</div><div className="top-actions"><span className="market-status"><i className={portfolio?.available_count ? 'connected' : ''}/> {portfolio?.available_count ? 'Market data connected' : portfolio ? 'No market data' : 'Connecting'}</span><button className="icon-button" aria-label="Refresh data" onClick={()=>void loadPortfolio(true)} disabled={refreshing}><RefreshCw size={16} className={refreshing?'spin':''}/></button><div className="avatar small">A</div></div></header>
       <div className="content" id="home">
+      <div className="page-view" key={active}>
+      {active==='Home'&&<>
         <div className="eyebrow"><span>INVESTMENT PORTFOLIO</span><i/> MARKET INTELLIGENCE</div>
         <section className="greeting"><div><h1>Market overview</h1><p>Portfolio performance, company filings, and unusual market activity in one place.</p></div><button className="date-button" onClick={()=>void loadPortfolio(true)} disabled={refreshing}>{refreshing?'Refreshing…':'Refresh prices'} <RefreshCw size={13}/></button></section>
         {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
@@ -378,7 +380,16 @@ function App() {
           <article className="stat-card"><div className="stat-heading">Portfolio alerts <span className="stat-icon amber"><Bell size={17}/></span></div><div className="stat-value">{loading?'—':String((portfolio?.alert_count ?? 0) + announcements.filter(item=>item.priority==='high').length).padStart(2,'0')}</div><div className="stat-foot"><span>Price, volume, and filings</span><button className="text-amber" onClick={()=>navigate('Alerts','alerts')}>Review <ArrowRight size={13}/></button></div></article>
           <article className="stat-card"><div className="stat-heading">Daily P&L <span className="stat-icon blue"><Activity size={17}/></span></div><div className={`stat-value ${todayPnl < 0 ? 'loss-value' : todayPnl > 0 ? 'gain-value' : ''}`}>{heldCompanies.length ? money(todayPnl) : '—'}</div><div className="stat-foot"><span>From latest available close</span><button onClick={()=>navigate('Portfolio','portfolio')}>Holdings <ArrowRight size={13}/></button></div></article>
         </section>
+        <div className="home-shortcuts">
+          <button onClick={()=>navigate('Alerts','alerts')}><span className="shortcut-icon"><Bell size={17}/></span><span><b>Review market signals</b><small>Announcements, unusual volume, and price moves</small></span><ArrowRight size={17}/></button>
+          <button onClick={()=>navigate('Research','research')}><span className="shortcut-icon"><Search size={17}/></span><span><b>Research a company</b><small>Ask questions against cited primary sources</small></span><ArrowRight size={17}/></button>
+          <button onClick={()=>navigate('Portfolio','portfolio')}><span className="shortcut-icon"><BriefcaseBusiness size={17}/></span><span><b>Manage portfolio</b><small>Review holdings and the 20-company watchlist</small></span><ArrowRight size={17}/></button>
+        </div>
+      </>}
 
+      {active==='Alerts'&&<>
+        <div className="eyebrow"><span>PUSH INTELLIGENCE</span><i/> FILINGS & MARKET SIGNALS</div>
+        <section className="greeting page-greeting"><div><h1>Alerts</h1><p>Exchange filings and unusual market activity, with source links and context.</p></div></section>
         <section id="alerts" className="anchor-section">
           <div className="section-heading"><div><h2>Announcement intelligence</h2><p>Exchange filings classified and ranked by likely relevance</p></div><div className="section-tools"><select aria-label="Announcement time window" value={announcementWindow} onChange={event=>{const hours=Number(event.target.value);setAnnouncementWindow(hours);void loadAnnouncements(hours)}}><option value={24}>Last 24 hours</option><option value={168}>Last 7 days</option><option value={720}>Last 30 days</option></select><button className="link-button" onClick={()=>void loadAnnouncements()}>Refresh <RefreshCw size={13}/></button></div></div>
           {announcementError?<div className="state-card error-state"><span>{announcementError} FINN is not filling the feed with invented filings.</span><button onClick={()=>void loadAnnouncements()}>Retry</button></div>:announcements.length===0?<div className="state-card">No portfolio filings in the last {announcementWindow===24?'24 hours':announcementWindow===168?'7 days':'30 days'}. {announcementWindow<720?'Try a wider window to inspect older filings.':'Check NSE directly or refresh later.'}</div>:<>
@@ -392,7 +403,11 @@ function App() {
           <form className="threshold-panel" onSubmit={updateSettings}><label>Volume multiple<input type="number" min="1.1" max="10" step="0.1" value={settings.volume_multiple} onChange={event=>setSettings({...settings,volume_multiple:Number(event.target.value)})}/>× 20-session average</label><label>Daily price move<input type="number" min="0.5" max="25" step="0.5" value={settings.price_move_pct} onChange={event=>setSettings({...settings,price_move_pct:Number(event.target.value)})}/>± %</label><button type="submit">Save thresholds</button><span>{settingsMessage}</span></form>
           {loading&&!portfolio?<div className="state-card">Loading market data…</div>:portfolio?.alerts.length?<div className="intelligence-grid">{portfolio.alerts.map(company=><article className="alert-card" key={company.ticker}><div className="alert-top"><span className="priority"><i/> {(company.alert_types ?? (company.unusual_volume ? ['unusual_volume'] : [])).map(labelCategory).join(' + ').toUpperCase()}</span><span className="time">{company.session_date}</span></div><div className="company-line"><span className="company-logo green">{company.name[0]}</span><span><b>{company.name}</b><small>{company.ticker} · {company.sector}</small></span></div>{company.unusual_volume&&<h3>{company.volume_ratio_20d?.toFixed(1)}× its 20-session average volume</h3>}{company.unusual_price&&<h3>Daily price move {company.change_pct!==null&&company.change_pct!==undefined&&company.change_pct>0?'+':''}{company.change_pct?.toFixed(2)}%</h3>}<p>{marketSignalContext(company)} Latest close ₹{company.price?.toLocaleString('en-IN') ?? 'Unavailable'} · volume {company.volume?.toLocaleString('en-IN') ?? 'Unavailable'} shares.</p><div className="why"><Activity size={15}/><span>This is a statistical signal only. It does not establish a cause or predict future performance.</span></div>{explanations[`market-${company.ticker}`]&&<div className="ai-explanation"><b>{explanationModes[`market-${company.ticker}`]==='rule_based_fallback'?'Rule-based fallback':explanationModes[`market-${company.ticker}`]==='error'?'Explanation unavailable':explanationModes[`market-${company.ticker}`]==='rule_based'?'Rule-based explanation':'FINN AI explanation'}</b><p>{explanations[`market-${company.ticker}`]}</p>{explanationModes[`market-${company.ticker}`]==='rule_based_fallback'&&<small>OpenRouter did not respond. Check the backend terminal for the provider error.</small>}</div>}<div className="card-footer"><span>Source: <a href={`https://finance.yahoo.com/quote/${encodeURIComponent(company.ticker)}`} target="_blank" rel="noreferrer">Yahoo Finance ↗</a></span><button onClick={()=>void explainMarketAlert(company)} disabled={explaining===`market-${company.ticker}`}><Sparkles size={14}/>{explaining===`market-${company.ticker}`?'Thinking…':aiEnabled?'AI explanation':'Explain signal'}</button></div></article>)}</div>:<div className="state-card">{marketError?'Market data is unavailable, so FINN is not inferring that there are no alerts.':portfolio?.available_count?'No tracked company crossed the configured thresholds in the latest complete session.':'No market data returned.'}</div>}
         </section>
+      </>}
 
+      {active==='Research'&&<>
+        <div className="eyebrow"><span>PULL RESEARCH</span><i/> EVIDENCE WITH SOURCES</div>
+        <section className="greeting page-greeting"><div><h1>Company research</h1><p>Search company filings and reports, then review answers with document and page citations.</p></div></section>
         <section className="research-workflow anchor-section" id="research"><div className="section-heading"><div><h2>Primary-source company research</h2><p>Upload an annual report or earnings-call transcript, then ask a question with page citations.</p></div><span className="market-source">{aiEnabled?`${aiProvider} available`:'Local retrieval active'}</span></div>
           <form className="upload-panel" onSubmit={uploadResearch}><label>Company<input name="company" required placeholder="e.g. Reliance Industries"/></label><label>NSE ticker<input name="ticker" required placeholder="e.g. RELIANCE"/></label><label>Source type<select name="document_type" required><option>Annual report</option><option>Quarterly results</option><option>Earnings-call transcript</option><option>Investor presentation</option></select></label><label>Reporting period<input name="reporting_period" required placeholder="e.g. FY2026 or Q2 FY2027"/></label><label className="file-picker"><Upload size={16}/>{researchFilename||'Choose PDF'}<input type="file" name="file" accept="application/pdf,.pdf" required onChange={event=>setResearchFilename(event.target.files?.[0]?.name ?? '')}/></label><button type="submit" disabled={researchBusy}>Index primary source</button></form><small className="upload-hint">Text-searchable PDFs only · maximum 45 MB. Scanned image PDFs need OCR before upload.</small>
           {documents.length>0&&<form className="question-panel" onSubmit={askResearch}><label>Source document<select value={documentId} onChange={event=>setDocumentId(event.target.value)}>{documents.map(doc=><option key={doc.id} value={doc.id}>{doc.company} · {doc.document_type} · {doc.reporting_period} ({doc.pages} pages)</option>)}</select></label><label>Your question<input value={researchQuestion} onChange={event=>setResearchQuestion(event.target.value)} minLength={5} required placeholder="What did management say about margins?"/></label><button type="submit" disabled={researchBusy}>Ask FINN <ArrowRight size={14}/></button></form>}
@@ -418,7 +433,11 @@ function App() {
             </div>
           </>}
         </section>
+      </>}
 
+      {active==='Portfolio'&&<>
+        <div className="eyebrow"><span>PORTFOLIO WORKSPACE</span><i/> HOLDINGS & WATCHLIST</div>
+        <section className="greeting page-greeting"><div><h1>Portfolio</h1><p>Track positions, check available market prices, and manage the company watchlist.</p></div></section>
         <section id="portfolio" className="portfolio-preview anchor-section">
           <div className="section-heading"><div><h2>Holdings</h2><p>{heldCompanies.length} positions · {pricedHoldings.length} with current market prices</p></div><div className="section-tools">{heldCompanies.length < 15&&<button className="link-button" disabled={!portfolio} onClick={addDemoPositions}>Add demo positions to reach 15</button>}<span className="market-source">{portfolio?.source ?? 'Source pending'}</span></div></div>
           {heldCompanies.length === 0 ? <div className="state-card holdings-empty"><BriefcaseBusiness size={22}/><div><b>Your holdings start here</b><p>Add your positions, or load a clearly labelled synthetic portfolio for the demo.</p></div></div> : <>
@@ -441,9 +460,11 @@ function App() {
           {!loading&&filteredCompanies.length===0&&<div className="state-card">No tracked company matches “{query}”.</div>}
         </section>
         {holdingEditor&&<div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setHoldingEditor(null)}}><form className="holding-modal" onSubmit={saveHolding}><button className="modal-close" type="button" onClick={()=>setHoldingEditor(null)} aria-label="Close">×</button><span className="eyebrow-mini">PORTFOLIO POSITION</span><h2>{holdingEditor.name}</h2><p>Enter your actual holding details. FINN uses these values only to calculate your portfolio view.</p><label>Shares owned<input type="number" min="0.0001" step="any" required value={holdingShares} onChange={event=>setHoldingShares(event.target.value)} placeholder="e.g. 10"/></label><label>Average buy price per share (₹)<input type="number" min="0.01" step="any" required value={holdingAverageCost} onChange={event=>setHoldingAverageCost(event.target.value)} placeholder="e.g. 2450"/></label><div className="modal-actions"><button type="button" className="cancel-button" onClick={()=>setHoldingEditor(null)}>Cancel</button><button type="submit" className="save-button">Save holding</button></div></form></div>}
+      </>}
+      </div>
         <footer className="disclaimer">{portfolio?.notice ?? 'Portfolio universe for product demonstration only; not an investment recommendation.'}<span>Market data may be delayed. Research answers cite uploaded primary sources.</span></footer>
       </div>
-      <nav className="mobile-nav">{nav.map(({label,icon:Icon,target})=><button key={label} className={active===label?'mobile-active':''} onClick={()=>navigate(label,target)}><Icon size={19}/><span>{label}</span></button>)}</nav>
+      <nav className="mobile-nav" aria-label="Main navigation">{nav.map(({label,icon:Icon,target})=><button key={label} aria-current={active===label?'page':undefined} className={active===label?'mobile-active':''} onClick={()=>navigate(label,target)}><Icon size={19}/><span>{label}</span></button>)}</nav>
     </main>
   </div>
 }

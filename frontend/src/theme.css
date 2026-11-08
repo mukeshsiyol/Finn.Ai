@@ -362,3 +362,27 @@ html, body, #root { max-width: 100%; }
   .financial-excerpt, .promise-quote, .financial-entry button, .promise-entry button { grid-column: 1 / -1; }
   .mobile-nav button { min-width: 54px; }
 }
+
+/* Four focused work areas replace the previous single scrolling dashboard. */
+.page-view { animation: page-in .22s ease-out both; }
+@keyframes page-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+.page-greeting { margin-bottom: 24px; }
+.home-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.home-shortcuts button { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 76px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow-card); text-align: left; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.home-shortcuts button:hover { transform: translateY(-2px); border-color: #cbd9c6; box-shadow: 0 10px 24px rgba(24, 44, 30, .07); }
+.home-shortcuts button > span:nth-child(2) { display: grid; gap: 4px; }
+.home-shortcuts b { font-size: 12px; }
+.home-shortcuts small { color: var(--muted); font-size: 10px; line-height: 1.45; }
+.shortcut-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--forest); background: var(--accent-soft); }
+.home-shortcuts button > svg:last-child { color: var(--muted); }
+.page-greeting h1 { font-size: clamp(26px, 3vw, 34px); }
+
+@media (max-width: 720px) {
+  .home-shortcuts { grid-template-columns: 1fr; gap: 9px; margin-top: 17px; }
+  .home-shortcuts button { min-height: 68px; padding: 12px; }
+  .page-greeting { margin: 10px 0 20px; }
+  .page-view { animation-duration: .18s; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-view { animation: none; }
+}
