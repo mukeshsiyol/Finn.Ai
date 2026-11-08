@@ -78,10 +78,25 @@ function App() {
   const [holdingEditor, setHoldingEditor] = useState<Company | null>(null)
   const [holdingShares, setHoldingShares] = useState('')
   const [holdingAverageCost, setHoldingAverageCost] = useState('')
+  const [holdingIsDemo, setHoldingIsDemo] = useState(false)
+  const [holdingError, setHoldingError] = useState('')
+  const [pendingRemoval, setPendingRemoval] = useState<Company | null>(null)
 
   useEffect(() => {
     localStorage.setItem('finn-holdings-v1', JSON.stringify(holdings))
   }, [holdings])
+
+  useEffect(() => {
+    if (!holdingEditor && !pendingRemoval) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHoldingEditor(null)
+        setPendingRemoval(null)
+      }
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [holdingEditor, pendingRemoval])
 
   async function loadPortfolio(force = false) {
     setMarketError('')
@@ -338,6 +353,8 @@ function App() {
     const current = holdings[company.ticker]
     setHoldingShares(current ? String(current.shares) : '')
     setHoldingAverageCost(current ? String(current.average_cost) : '')
+    setHoldingIsDemo(Boolean(current?.demo))
+    setHoldingError('')
     setHoldingEditor(company)
   }
 
@@ -346,9 +363,13 @@ function App() {
     if (!holdingEditor) return
     const shares = Number(holdingShares)
     const averageCost = Number(holdingAverageCost)
-    if (!Number.isFinite(shares) || shares <= 0 || !Number.isFinite(averageCost) || averageCost <= 0) return
-    setHoldings(current => ({ ...current, [holdingEditor.ticker]: { shares, average_cost: averageCost } }))
+    if (!Number.isFinite(shares) || shares <= 0 || !Number.isFinite(averageCost) || averageCost <= 0) {
+      setHoldingError('Enter a share quantity and average cost greater than zero.')
+      return
+    }
+    setHoldings(current => ({ ...current, [holdingEditor.ticker]: { shares, average_cost: averageCost, demo: holdingIsDemo } }))
     setHoldingEditor(null)
+    setHoldingError('')
   }
 
   function addDemoPositions() {
@@ -366,12 +387,14 @@ function App() {
     })
   }
 
-  function removeHolding(ticker: string) {
+  function removeHolding() {
+    if (!pendingRemoval) return
     setHoldings(current => {
       const next = { ...current }
-      delete next[ticker]
+      delete next[pendingRemoval.ticker]
       return next
     })
+    setPendingRemoval(null)
   }
 
   return <div className="app-shell">
@@ -472,13 +495,13 @@ function App() {
         <div className="eyebrow"><span>PORTFOLIO WORKSPACE</span><i/> HOLDINGS & WATCHLIST</div>
         <section className="greeting page-greeting"><div><h1>Portfolio</h1><p>Track positions, check available market prices, and manage the company watchlist.</p></div></section>
         <div className="page-tabs" role="tablist" aria-label="Portfolio views">
-          <button role="tab" aria-selected={portfolioTab==='holdings'} className={portfolioTab==='holdings'?'active':''} onClick={()=>selectSubview(setPortfolioTab,'holdings')}>Holdings</button>
+          <button role="tab" aria-selected={portfolioTab==='holdings'} className={portfolioTab==='holdings'?'active':''} onClick={()=>selectSubview(setPortfolioTab,'holdings')}>Holdings <span>{heldCompanies.length}</span></button>
           <button role="tab" aria-selected={portfolioTab==='watchlist'} className={portfolioTab==='watchlist'?'active':''} onClick={()=>selectSubview(setPortfolioTab,'watchlist')}>Watchlist <span>{portfolio?.companies.length ?? 20}</span></button>
         </div>
         <section id="portfolio" className="portfolio-preview anchor-section">
           <div hidden={portfolioTab!=='holdings'}>
-          <div className="section-heading"><div><h2>Holdings</h2><p>{heldCompanies.length} positions · {pricedHoldings.length} with current market prices</p></div><div className="section-tools">{heldCompanies.length < 15&&<button className="link-button" disabled={!portfolio} onClick={addDemoPositions}>Add demo positions to reach 15</button>}<span className="market-source">{portfolio?.source ?? 'Source pending'}</span></div></div>
-          {heldCompanies.length === 0 ? <div className="state-card holdings-empty"><BriefcaseBusiness size={22}/><div><b>Your holdings start here</b><p>Add your positions, or load a clearly labelled synthetic portfolio for the demo.</p></div></div> : <>
+          <div className="section-heading"><div><h2>Your holdings</h2><p>{heldCompanies.length} positions · {pricedHoldings.length} with current market prices</p></div><div className="holding-heading-actions"><button className="link-button" disabled={!portfolio} onClick={()=>selectSubview(setPortfolioTab,'watchlist')}>Add or edit a holding</button>{heldCompanies.length < 15&&<button className="demo-secondary" disabled={!portfolio} onClick={addDemoPositions}>Add demo positions to reach 15</button>}<span className="market-source">{portfolio?.source ?? 'Source pending'}</span></div></div>
+          {heldCompanies.length === 0 ? <div className="state-card holdings-empty"><span className="empty-icon"><BriefcaseBusiness size={21}/></span><div><b>Your holdings start here</b><p>Add a company and enter the shares and average cost you own. Or load clearly labelled sample positions for the demo.</p><div className="empty-actions"><button className="save-button" disabled={!portfolio} onClick={()=>selectSubview(setPortfolioTab,'watchlist')}>Choose a company</button><button className="cancel-button" disabled={!portfolio} onClick={addDemoPositions}>Load demo holdings</button></div><small>Holdings are saved in this browser only.</small></div></div> : <>
             <div className="holdings-summary"><article><small>Invested cost</small><b>{money(investedCapital)}</b></article><article><small>Market value{pricedHoldings.length < heldCompanies.length ? ' · partial' : ''}</small><b>{money(marketValue)}</b></article><article><small>Today’s P&amp;L</small><b className={todayPnl < 0 ? 'loss-value' : 'gain-value'}>{money(todayPnl)}</b></article><article><small>Unrealized P&amp;L{pricedHoldings.length < heldCompanies.length ? ' · partial' : ''}</small><b className={unrealizedPnl < 0 ? 'loss-value' : 'gain-value'}>{money(unrealizedPnl)}</b></article></div>
             <div className="positions-table"><div className="position-row position-header"><span>Company</span><span>Shares</span><span>Avg. cost</span><span>Last price</span><span>Market value</span><span>Today</span><span>Unrealized</span><span></span></div>
               {heldCompanies.map(company => {
@@ -487,20 +510,33 @@ function App() {
                 const dayPerShare = company.price !== undefined && company.change_pct !== null && company.change_pct !== undefined && company.change_pct > -100 ? company.price - company.price / (1 + company.change_pct / 100) : null
                 const dayValue = dayPerShare === null ? null : dayPerShare * position.shares
                 const unrealized = currentValue === null ? null : currentValue - position.shares * position.average_cost
-                return <div className="position-row" key={company.ticker}><span className="position-company"><b>{company.name}</b><small>{company.ticker} · {company.sector}{position.demo&&<strong style={{color:'#9a6b16',marginLeft:5}}>DEMO DATA</strong>}</small></span><span>{position.shares.toLocaleString('en-IN')}</span><span>{money(position.average_cost)}</span><span>{company.market_status === 'available' ? money(company.price) : 'Unavailable'}</span><b>{money(currentValue)}</b><b className={dayValue === null ? '' : dayValue < 0 ? 'loss-value' : 'gain-value'}>{money(dayValue)}</b><b className={unrealized === null ? '' : unrealized < 0 ? 'loss-value' : 'gain-value'}>{money(unrealized)}</b><span className="position-actions"><button onClick={()=>openHoldingEditor(company)}>Edit</button><button onClick={()=>removeHolding(company.ticker)} aria-label={`Remove ${company.name}`}>Remove</button></span></div>
+                return <div className="position-row" key={company.ticker}><span className="position-company"><b>{company.name}</b><small>{company.ticker} · {company.sector}{position.demo&&<strong className="demo-badge">DEMO</strong>}</small></span><span>{position.shares.toLocaleString('en-IN')}</span><span>{money(position.average_cost)}</span><span>{company.market_status === 'available' ? money(company.price) : 'Unavailable'}</span><b>{money(currentValue)}</b><b className={dayValue === null ? '' : dayValue < 0 ? 'loss-value' : 'gain-value'}>{money(dayValue)}</b><b className={unrealized === null ? '' : unrealized < 0 ? 'loss-value' : 'gain-value'}>{money(unrealized)}</b><span className="position-actions"><button onClick={()=>openHoldingEditor(company)}>Edit</button><button className="remove-action" onClick={()=>setPendingRemoval(company)}>Remove</button></span></div>
               })}
             </div>
-            <p className="holdings-note">{pricedHoldings.length < heldCompanies.length ? 'Totals exclude positions without a current price. ' : ''}{heldCompanies.some(company=>holdings[company.ticker]?.demo)?'DEMO DATA positions are synthetic examples, not actual holdings. Edit a row to replace its sample values. ':''}Positions are saved in this browser only; average cost is the value you enter.</p>
+            <p className="holdings-note">{pricedHoldings.length < heldCompanies.length ? 'Totals exclude positions without a current price. ' : ''}{heldCompanies.some(company=>holdings[company.ticker]?.demo)?'DEMO positions are synthetic examples, not actual holdings. ':''}Holdings are saved in this browser only; average cost is the value you enter.</p>
           </>}
           </div>
           <div hidden={portfolioTab!=='watchlist'}>
-          <div className="section-heading watchlist-heading"><div><h2>Watchlist</h2><p>Choose a company to add or update a holding</p></div><span className="market-source">{filteredCompanies.length} companies tracked</span></div>
-          <label className="portfolio-search"><Search size={16}/><input aria-label="Search portfolio" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search company, ticker, or sector"/></label>
-          {loading&&!portfolio?<div className="state-card">Loading companies…</div>:<div className="watchlist-table"><div className="watchlist-row watchlist-header"><span>Company</span><span>Last price</span><span>Daily move</span><span>Volume vs 20-session avg.</span><span>Holding</span></div>{filteredCompanies.map(company=>{const position=holdings[company.ticker];return <div className="watchlist-row" key={company.ticker}><span className="position-company"><b>{company.name}</b><small>{company.ticker} · {company.sector}</small></span><b>{company.market_status==='available'?money(company.price):'Unavailable'}</b><b className={company.change_pct!==null&&company.change_pct!==undefined?(company.change_pct<0?'loss-value':'gain-value'):''}>{company.change_pct!==null&&company.change_pct!==undefined?`${company.change_pct>0?'+':''}${company.change_pct.toFixed(2)}%`:'—'}</b><span>{company.volume_ratio_20d!==null&&company.volume_ratio_20d!==undefined?`${company.volume_ratio_20d.toFixed(2)}×`:'—'}</span><button className="holding-action" onClick={()=>openHoldingEditor(company)}>{position?`${position.shares.toLocaleString('en-IN')} shares · Edit`:'Add holding'}</button></div>})}</div>}
+          <div className="section-heading watchlist-heading"><div><h2>Company watchlist</h2><p>Add a company to holdings or edit its current position</p></div><span className="market-source">{filteredCompanies.length} of {portfolio?.companies.length ?? 20} companies</span></div>
+          <div className="watchlist-controls"><label className="portfolio-search"><Search size={16}/><input aria-label="Search watchlist" value={query} onChange={event=>setQuery(event.target.value)} placeholder="Search name, ticker, or sector"/>{query&&<button type="button" aria-label="Clear search" onClick={()=>setQuery('')}>×</button>}</label><small>Market data: {portfolio?.source ?? 'loading'}</small></div>
+          {loading&&!portfolio?<div className="state-card">Loading companies…</div>:<div className="watchlist-table"><div className="watchlist-row watchlist-header"><span>Company</span><span>Last price</span><span>Daily move</span><span>Volume vs 20-session avg.</span><span>Action</span></div>{filteredCompanies.map(company=>{const position=holdings[company.ticker];return <div className="watchlist-row" key={company.ticker}><span className="position-company"><b>{company.name}</b><small>{company.ticker} · {company.sector}</small></span><b>{company.market_status==='available'?money(company.price):'Unavailable'}</b><b className={company.change_pct!==null&&company.change_pct!==undefined?(company.change_pct<0?'loss-value':'gain-value'):''}>{company.change_pct!==null&&company.change_pct!==undefined?`${company.change_pct>0?'+':''}${company.change_pct.toFixed(2)}%`:'—'}</b><span>{company.volume_ratio_20d!==null&&company.volume_ratio_20d!==undefined?`${company.volume_ratio_20d.toFixed(2)}×`:'—'}</span><button className={`holding-action ${position?'is-held':''}`} onClick={()=>openHoldingEditor(company)}>{position?'Edit position':'Add holding'}</button></div>})}</div>}
           {!loading&&filteredCompanies.length===0&&<div className="state-card">No tracked company matches “{query}”.</div>}
           </div>
         </section>
-        {holdingEditor&&<div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setHoldingEditor(null)}}><form className="holding-modal" onSubmit={saveHolding}><button className="modal-close" type="button" onClick={()=>setHoldingEditor(null)} aria-label="Close">×</button><span className="eyebrow-mini">PORTFOLIO POSITION</span><h2>{holdingEditor.name}</h2><p>Enter your actual holding details. FINN uses these values only to calculate your portfolio view.</p><label>Shares owned<input type="number" min="0.0001" step="any" required value={holdingShares} onChange={event=>setHoldingShares(event.target.value)} placeholder="e.g. 10"/></label><label>Average buy price per share (₹)<input type="number" min="0.01" step="any" required value={holdingAverageCost} onChange={event=>setHoldingAverageCost(event.target.value)} placeholder="e.g. 2450"/></label><div className="modal-actions"><button type="button" className="cancel-button" onClick={()=>setHoldingEditor(null)}>Cancel</button><button type="submit" className="save-button">Save holding</button></div></form></div>}
+        {holdingEditor&&<div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setHoldingEditor(null)}}><form className="holding-modal position-editor" onSubmit={saveHolding} role="dialog" aria-modal="true" aria-labelledby="holding-modal-title" aria-describedby="holding-modal-description">
+          <button className="modal-close" type="button" onClick={()=>setHoldingEditor(null)} aria-label="Close position editor">×</button>
+          <span className="eyebrow-mini">{holdings[holdingEditor.ticker]?'EDIT POSITION':'NEW POSITION'}</span>
+          <h2 id="holding-modal-title">{holdingEditor.name}</h2>
+          <p className="holding-ticker">{holdingEditor.ticker} · {holdingEditor.sector}</p>
+          <p id="holding-modal-description">Enter the shares and average price you paid. Current market prices are fetched separately.</p>
+          <div className="holding-market-reference"><span>Latest market price</span><b>{holdingEditor.market_status==='available'&&holdingEditor.price!==undefined?money(holdingEditor.price):'Unavailable'}</b><small>{holdingEditor.market_status==='available'?'Market data may be delayed.':'Price data is currently unavailable.'}</small></div>
+          <label>Shares owned<input type="number" min="0.0001" step="any" required value={holdingShares} onChange={event=>setHoldingShares(event.target.value)} placeholder="e.g. 10" autoFocus/><small>Fractional quantities are supported.</small></label>
+          <label>Average cost per share<input type="number" min="0.01" step="any" required value={holdingAverageCost} onChange={event=>setHoldingAverageCost(event.target.value)} placeholder="e.g. 2,450"/><small>Enter your purchase cost in rupees.</small></label>
+          <label className="demo-choice"><input type="checkbox" checked={holdingIsDemo} onChange={event=>setHoldingIsDemo(event.target.checked)}/><span><b>Label as demo data</b><small>Use this for synthetic sample positions, not real holdings.</small></span></label>
+          {holdingError&&<p className="holding-error" role="alert">{holdingError}</p>}
+          <div className="modal-actions"><button type="button" className="cancel-button" onClick={()=>setHoldingEditor(null)}>Cancel</button><button type="submit" className="save-button">{holdings[holdingEditor.ticker]?'Save changes':'Add holding'}</button></div>
+        </form></div>}
+        {pendingRemoval&&<div className="modal-backdrop" role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setPendingRemoval(null)}}><div className="holding-modal remove-confirm" role="alertdialog" aria-modal="true" aria-labelledby="remove-title" aria-describedby="remove-description"><span className="eyebrow-mini">REMOVE POSITION</span><h2 id="remove-title">Remove {pendingRemoval.name}?</h2><p id="remove-description">This removes the holding from this browser’s portfolio. The company stays in your watchlist.</p><div className="modal-actions"><button className="cancel-button" onClick={()=>setPendingRemoval(null)}>Keep holding</button><button className="remove-confirm-button" onClick={removeHolding}>Remove position</button></div></div></div>}
       </>}
       </div>
         <footer className="disclaimer">{portfolio?.notice ?? 'Portfolio universe for product demonstration only; not an investment recommendation.'}<span>Market data may be delayed. Research answers cite uploaded primary sources.</span></footer>
