@@ -376,12 +376,29 @@ html, body, #root { max-width: 100%; }
 .shortcut-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; color: var(--forest); background: var(--accent-soft); }
 .home-shortcuts button > svg:last-child { color: var(--muted); }
 .page-greeting h1 { font-size: clamp(26px, 3vw, 34px); }
+.page-tabs { display: flex; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin: 0 0 20px; padding: 4px; overflow-x: auto; border: 1px solid #e5eae2; border-radius: 12px; background: #edf1eb; scrollbar-width: none; }
+.page-tabs::-webkit-scrollbar { display: none; }
+.page-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 9px; color: #667267; background: transparent; font-size: 11px; font-weight: 600; white-space: nowrap; transition: color .16s ease, background .16s ease, box-shadow .16s ease; }
+.page-tabs button:hover { color: var(--forest); background: rgba(255,255,255,.55); }
+.page-tabs button.active { color: var(--forest); border-color: #e7ece4; background: white; box-shadow: 0 2px 7px rgba(24,44,30,.06); }
+.page-tabs button span { min-width: 20px; padding: 2px 5px; border-radius: 999px; color: #48654a; background: var(--accent-soft); font-size: 9px; }
+.page-tabs [hidden] { display: none !important; }
+.research-pane[hidden], .research-subsection[hidden], .portfolio-preview > div[hidden] { display: none !important; }
+.financial-period { margin-top: 10px; padding: 0 12px 12px; border: 1px solid var(--line); border-radius: 11px; background: white; }
+.financial-period > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 46px; color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer; }
+.financial-period > summary small { color: var(--muted); font-size: 10px; font-weight: 400; text-align: right; }
+.financial-period[open] > summary { margin-bottom: 5px; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 720px) {
   .home-shortcuts { grid-template-columns: 1fr; gap: 9px; margin-top: 17px; }
   .home-shortcuts button { min-height: 68px; padding: 12px; }
   .page-greeting { margin: 10px 0 20px; }
   .page-view { animation-duration: .18s; }
+  .page-tabs { position: sticky; top: 56px; z-index: 3; width: 100%; margin-bottom: 16px; border-radius: 11px; background: rgba(237,241,235,.94); backdrop-filter: blur(14px); }
+  .page-tabs button { flex: 1 0 auto; min-height: 40px; padding-right: 12px; padding-left: 12px; }
+  .financial-period { padding-right: 10px; padding-left: 10px; }
+  .financial-period > summary { align-items: flex-start; flex-direction: column; justify-content: center; gap: 1px; }
+  .financial-period > summary small { text-align: left; }
 }
 @media (prefers-reduced-motion: reduce) {
   .page-view { animation: none; }
