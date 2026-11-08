@@ -19,6 +19,10 @@ const nav = [
   { label: 'Research', icon: Search, target: 'research' },
   { label: 'Portfolio', icon: BriefcaseBusiness, target: 'portfolio' },
 ]
+const pageFromUrl = () => {
+  const target = window.location.hash.replace(/^#\/?/, '').split(/[/?#]/)[0]
+  return nav.find(item => item.target === target)?.label ?? 'Home'
+}
 const labelCategory = (value: string) => value.replaceAll('_', ' ').replace('m&a', 'M&A')
 const money = (value: number | null | undefined) => value === null || value === undefined || !Number.isFinite(value) ? '—' : new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value)
 const changeValue = (change: FinancialChange) => change.status === 'available' && change.change_pct !== null ? `${change.change_pct > 0 ? '+' : ''}${change.change_pct.toFixed(2)}%` : ({ missing_data: 'Data missing', unit_mismatch: 'Unit mismatch', non_positive_base: 'Not comparable', available: 'Not calculated' }[change.status])
@@ -30,7 +34,7 @@ const marketSignalContext = (company: Alert) => {
 }
 
 function App() {
-  const [active, setActive] = useState('Home')
+  const [active, setActive] = useState(pageFromUrl)
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null)
   const [marketError, setMarketError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -127,6 +131,19 @@ function App() {
     fetch(`${API}/api/settings/alerts`).then(response => response.ok ? response.json() : null).then(value => value && setSettings(value)).catch(() => undefined)
   }, [])
 
+  useEffect(() => {
+    const syncPageFromUrl = () => {
+      setActive(pageFromUrl())
+      window.scrollTo({ top: 0, behavior: 'auto' })
+    }
+    window.addEventListener('popstate', syncPageFromUrl)
+    window.addEventListener('hashchange', syncPageFromUrl)
+    return () => {
+      window.removeEventListener('popstate', syncPageFromUrl)
+      window.removeEventListener('hashchange', syncPageFromUrl)
+    }
+  }, [])
+
   const filteredCompanies = useMemo(() => {
     const list = portfolio?.companies ?? []
     const search = query.trim().toLowerCase()
@@ -158,7 +175,9 @@ function App() {
     return sum + holdings[company.ticker].shares * (company.price - previousClose)
   }, 0)
 
-  function navigate(label: string, _target: string) {
+  function navigate(label: string, target: string) {
+    const nextHash = `#/${target}`
+    if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash)
     setActive(label)
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
@@ -348,7 +367,7 @@ function App() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#home" onClick={() => navigate('Home', 'home')} aria-label="FINN home"><span className="brand-mark">f</span><span>finn<span className="brand-dot">.</span></span></a>
+      <a className="brand" href="#/home" onClick={event=>{event.preventDefault();navigate('Home','home')}} aria-label="FINN home"><span className="brand-mark">f</span><span>finn<span className="brand-dot">.</span></span></a>
       <div className="workspace-label">WORKSPACE</div>
       <div className="workspace"><div className="workspace-icon">A</div><span>Analyst workspace</span><ChevronDown size={15}/></div>
       <div className="nav-label">OVERVIEW</div>
