@@ -1,12 +1,13 @@
 import json
+import hashlib
 import math
 import re
 import unicodedata
-from collections import Counter
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
+from collections import Counter
 
 from fastapi import HTTPException, UploadFile
 from pypdf import PdfReader
@@ -64,7 +65,7 @@ def _manifest() -> list[dict]:
 
 
 def list_documents() -> list[dict]:
-    return [{key: doc[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in doc} for doc in _manifest()]
+    return [{key: doc[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url", "superseded_by") if key in doc} for doc in _manifest()]
 
 
 async def add_pdf(company: str, ticker: str, document_type: str, reporting_period: str, upload: UploadFile) -> dict:
@@ -73,7 +74,7 @@ async def add_pdf(company: str, ticker: str, document_type: str, reporting_perio
         raise HTTPException(status_code=400, detail="Upload a PDF primary source.")
     content = await upload.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="PDF exceeds the 30 MB upload limit.")
+        raise HTTPException(status_code=413, detail="PDF exceeds the 45 MB upload limit.")
     if not content.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="The uploaded file is not a valid PDF.")
     try:
@@ -93,13 +94,88 @@ async def add_pdf(company: str, ticker: str, document_type: str, reporting_perio
     doc_id = str(uuid4())
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     path = UPLOADS_DIR / f"{doc_id}.pdf"
-    path.write_bytes(content)
     record = {"id": doc_id, "company": company[:120], "ticker": ticker[:32].upper(), "filename": filename, "document_type": document_type[:60], "reporting_period": reporting_period[:80], "pages": page_count, "stored_name": path.name}
     with _manifest_lock:
         docs = _manifest()
+        digest = hashlib.sha256(content).hexdigest()
+        for existing in docs:
+            if existing.get("sha256"):
+                continue
+            old_path = UPLOADS_DIR / existing.get("stored_name", "")
+            if old_path.parent == UPLOADS_DIR and old_path.is_file():
+                existing["sha256"] = hashlib.sha256(old_path.read_bytes()).hexdigest()
+        duplicate = next((item for item in docs if item.get("sha256") == digest), None)
+        if duplicate:
+            raise HTTPException(status_code=409, detail=f"This PDF is already indexed as {duplicate.get('company')} · {duplicate.get('filename')}.")
+        record["sha256"] = digest
         docs.append(record)
+        path.write_bytes(content)
         MANIFEST_PATH.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in record}
+
+
+def remove_document(doc_id: str) -> dict:
+    with _manifest_lock:
+        docs = _manifest()
+        record = next((doc for doc in docs if doc.get("id") == doc_id), None)
+        if not record:
+            raise HTTPException(status_code=404, detail="Source document not found.")
+        remaining = [doc for doc in docs if doc.get("id") != doc_id]
+        MANIFEST_PATH.write_text(json.dumps(remaining, ensure_ascii=False, indent=2), encoding="utf-8")
+        path = UPLOADS_DIR / record.get("stored_name", "")
+        if path.parent == UPLOADS_DIR and path.is_file():
+            path.unlink()
+        with _page_cache_lock:
+            _page_text_cache.pop(str(path), None)
+    return record
+
+
+def reindex_document(doc_id: str) -> dict:
+    record = next((doc for doc in _manifest() if doc.get("id") == doc_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    path = UPLOADS_DIR / record.get("stored_name", "")
+    if not path.is_file() or path.parent != UPLOADS_DIR:
+        raise HTTPException(status_code=404, detail="Stored PDF is missing. Replace or upload it again.")
+    with _page_cache_lock:
+        _page_text_cache.pop(str(path), None)
+    try:
+        reader = PdfReader(str(path))
+        pages = [(index + 1, *_extract_page_content(page)) for index, page in enumerate(reader.pages)]
+        if not any(text or tables for _, text, tables in pages):
+            raise HTTPException(status_code=422, detail="No selectable text was found. OCR this PDF before re-indexing.")
+        stat = path.stat()
+        with _page_cache_lock:
+            _page_text_cache[str(path)] = (stat.st_mtime_ns, stat.st_size, pages)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Could not re-index this PDF.") from exc
+    return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in record}
+
+
+def validate_page_excerpt(document_id: str, page_number: int, excerpt: str) -> float:
+    record = next((doc for doc in _manifest() if doc.get("id") == document_id), None)
+    if not record:
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    path = UPLOADS_DIR / record.get("stored_name", "")
+    try:
+        reader = PdfReader(str(path))
+        if page_number < 1 or page_number > len(reader.pages):
+            raise HTTPException(status_code=422, detail="Source page is outside the PDF page range.")
+        page_text = " ".join(_extract_page_content(reader.pages[page_number - 1]))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Could not verify the selected page against the uploaded PDF.") from exc
+    source_terms = {term.lower().rstrip("s") for term in WORD_RE.findall(page_text) if len(term) > 2}
+    excerpt_terms = {term.lower().rstrip("s") for term in WORD_RE.findall(excerpt) if len(term) > 2}
+    if not excerpt_terms:
+        raise HTTPException(status_code=422, detail="Enter a supporting passage that can be matched to the selected source page.")
+    matched = len(source_terms & excerpt_terms) / len(excerpt_terms)
+    if len(source_terms & excerpt_terms) < min(3, len(excerpt_terms)) or matched < 0.25:
+        raise HTTPException(status_code=422, detail="The supporting passage does not match the selected PDF page. Check the page number and excerpt before saving.")
+    return round(matched, 3)
 
 
 def retrieve_pages(doc_id: str, question: str, limit: int = 5) -> tuple[dict, list[dict]]:

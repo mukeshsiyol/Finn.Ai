@@ -16,6 +16,7 @@ coverage/
 /frontend/playwright-report/
 /frontend/test-results/
 /data/alert_settings.json
+/data/alert_history.json
 /data/reports/*
 !/data/reports/documents.json
 !/data/reports/financials.json
