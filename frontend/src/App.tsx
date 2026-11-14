@@ -115,7 +115,9 @@ function App() {
   const [researchAllCompanySources, setResearchAllCompanySources] = useState(false)
   const [quickAskExchanges, setQuickAskExchanges] = useState<AIConversationExchange[]>([])
   const [homeAIQuestion, setHomeAIQuestion] = useState('')
-  const [homeQuestionHandoff, setHomeQuestionHandoff] = useState<{ id: string; question: string; scope: ResearchQueryScope } | null>(null)
+  const [homeQuestionHandoff, setHomeQuestionHandoff] = useState<{ id: string; question: string } | null>(null)
+  const [homeScopeNeedsConfirmation, setHomeScopeNeedsConfirmation] = useState(false)
+  const [homeScopeDocumentId, setHomeScopeDocumentId] = useState('')
   const consumedHomeHandoff = useRef<string | null>(null)
   const researchRequestLock = useRef(false)
   const [researchBusy, setResearchBusy] = useState(false)
@@ -320,7 +322,10 @@ function App() {
     setHomeAIQuestion('')
     setResearchTab('ask')
     setResearchQuestion(handoff.question)
-    void runResearchQuestion(handoff.question, handoff.scope)
+    setHomeScopeNeedsConfirmation(true)
+    setHomeScopeDocumentId('')
+    setResearchAllCompanySources(false)
+    setResearchMessage('Your question is ready. Choose a document or company scope before submitting it to FINN.')
   }, [active, homeQuestionHandoff])
 
   const allCompanies = useMemo(() => [...(portfolio?.companies ?? []), ...customCompanies], [portfolio, customCompanies])
@@ -783,22 +788,25 @@ function App() {
 
   async function askResearch(event: any) {
     event.preventDefault()
-    if (!documentId) { setResearchMessage('Upload a primary-source PDF first.'); return }
+    const selectedScopeId = homeScopeNeedsConfirmation ? homeScopeDocumentId : documentId
+    if (!selectedScopeId) { setResearchMessage('Choose a source document before submitting this question.'); return }
     if (researchBusy || researchRequestLock.current) return
-    const requestScope: ResearchQueryScope = researchAllCompanySources && selectedDocument
-      ? { ticker: selectedDocument.ticker }
-      : { document_id: documentId }
+    const scopeDocument = documents.find(doc => doc.id === selectedScopeId)
+    if (!scopeDocument) { setResearchMessage('Choose an available source document before submitting this question.'); return }
+    const requestScope: ResearchQueryScope = researchAllCompanySources
+      ? { ticker: scopeDocument.ticker }
+      : { document_id: selectedScopeId }
+    setResearchMessage('')
+    setHomeScopeNeedsConfirmation(false)
+    setDocumentId(selectedScopeId)
     await runResearchQuestion(researchQuestion, requestScope)
   }
 
   function submitHomeQuestion(event: any) {
     event.preventDefault()
     const question = homeAIQuestion.trim()
-    if (question.length < 5 || !selectedDocument || homeQuestionHandoff || researchBusy || researchRequestLock.current) return
-    const scope: ResearchQueryScope = researchAllCompanySources
-      ? { ticker: selectedDocument.ticker }
-      : { document_id: documentId || selectedDocument.id }
-    setHomeQuestionHandoff({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, question, scope })
+    if (question.length < 5 || homeQuestionHandoff || researchBusy || researchRequestLock.current) return
+    setHomeQuestionHandoff({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, question })
     navigate('Research', 'research')
   }
 
@@ -1016,8 +1024,8 @@ function App() {
         <section className="greeting"><div><h1>Today’s briefing</h1><p>Your portfolio, relevant signals, and the latest company updates.</p></div></section>
         <section className="home-ai-entry" aria-labelledby="home-ai-title">
           <div className="home-ai-heading"><span className="home-ai-mark"><Sparkles size={15}/></span><div><b id="home-ai-title">FINN AI</b><p>Ask about an indexed company source and continue in Research.</p></div></div>
-          {selectedDocument ? <form onSubmit={submitHomeQuestion} className="home-ai-form"><label className="sr-only" htmlFor="home-ai-question">Ask FINN a research question</label><input id="home-ai-question" value={homeAIQuestion} onChange={event=>setHomeAIQuestion(event.target.value)} minLength={5} maxLength={500} required placeholder="Ask a question about your research sources…"/><button type="submit" disabled={researchBusy||Boolean(homeQuestionHandoff)||homeAIQuestion.trim().length<5}><span>{homeQuestionHandoff?'Opening Research…':'Ask FINN'}</span><ArrowRight size={15}/></button></form> : <button className="home-ai-no-source" onClick={()=>navigate('Research','research')}>Add a source in Research to ask FINN <ArrowRight size={14}/></button>}
-          <small>{selectedDocument ? `Uses ${selectedDocument.company} · ${selectedDocument.document_type} · ${selectedDocument.reporting_period} selected in Research. Conversation stays in this session and is not saved.` : 'Conversation history is not saved.'}</small>
+          <form onSubmit={submitHomeQuestion} className="home-ai-form"><label className="sr-only" htmlFor="home-ai-question">Ask FINN a research question</label><input id="home-ai-question" value={homeAIQuestion} onChange={event=>setHomeAIQuestion(event.target.value)} minLength={5} maxLength={500} required placeholder="Ask a question about company research…"/><button type="submit" disabled={researchBusy||Boolean(homeQuestionHandoff)||homeAIQuestion.trim().length<5}><span>{homeQuestionHandoff?'Opening Research…':'Ask FINN'}</span><ArrowRight size={15}/></button></form>
+          <small>Your question opens in Research. Choose the source scope there before submitting; answers are independent and the session transcript is not saved.</small>
         </section>
         {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
         <section className="home-coverage-summary" aria-label="Watchlist price coverage">
@@ -1124,13 +1132,14 @@ function App() {
           <div className="research-pane" hidden={researchTab!=='ask'}>
           <form className="upload-panel" onSubmit={uploadResearch}><label>Company<input name="company" required placeholder="e.g. Reliance Industries"/></label><label>NSE ticker<input name="ticker" required placeholder="e.g. RELIANCE.NS"/></label><label>Source type<select name="document_type" required><option>Annual report</option><option>Quarterly results</option><option>Earnings-call transcript</option><option>Investor presentation</option></select></label><label>Reporting period<input name="reporting_period" required placeholder="e.g. FY2026 or Q2 FY2027"/></label><label>Official source URL (optional)<input name="source_url" type="url" placeholder="https://www.nseindia.com/..."/></label><label className="file-picker"><Upload size={16}/>{researchFilename||'Choose PDF'}<input type="file" name="file" accept="application/pdf,.pdf" required onChange={event=>setResearchFilename(event.target.files?.[0]?.name ?? '')}/></label><button type="submit" disabled={researchBusy}>Index primary source</button></form>{documentUploadState&&<p className={`indexing-message ${documentUploadState.status}`} role="status"><b>{documentUploadState.status}</b> · {documentUploadState.filename} · {documentUploadState.message}</p>}<small className="upload-hint">Text-searchable PDFs only · maximum 45 MB. Tracked-company names and tickers are checked as a pair. Scanned image PDFs need OCR before upload.</small>
           {researchMessage&&<p className="workflow-message" role="status">{researchMessage}</p>}
+          {homeScopeNeedsConfirmation&&<div className="ai-scope-prompt" role="status"><b>Choose the evidence scope for this question</b><p>{documents.length ? 'Select a document, or choose its company scope below. FINN will not submit until you confirm by pressing Ask FINN.' : 'Your question is preserved. Upload and index a primary-source PDF to choose a scope and submit it.'}</p>{researchQuestion&&<blockquote>{researchQuestion}</blockquote>}</div>}
           {documents.length>0&&<>
             <AIConversation exchanges={quickAskExchanges} citationHref={citationHref}/>
             <form className="question-panel" onSubmit={askResearch}>
-              <label>Source document<select value={documentId} onChange={event=>{setDocumentId(event.target.value);setResearchAllCompanySources(false)}}>{documents.map(doc=><option key={doc.id} value={doc.id}>{doc.company} · {doc.document_type} · {doc.reporting_period} ({doc.pages} pages)</option>)}</select></label>
+              <label>Source document<select value={homeScopeNeedsConfirmation?homeScopeDocumentId:documentId} onChange={event=>{const value=event.target.value;setDocumentId(value);if(homeScopeNeedsConfirmation)setHomeScopeDocumentId(value);setResearchAllCompanySources(false)}}>{homeScopeNeedsConfirmation&&<option value="">Choose a document…</option>}{documents.map(doc=><option key={doc.id} value={doc.id}>{doc.company} · {doc.document_type} · {doc.reporting_period} ({doc.pages} pages)</option>)}</select></label>
               <label>Your question<input value={researchQuestion} onChange={event=>setResearchQuestion(event.target.value)} minLength={5} maxLength={500} required placeholder="What did management say about margins?"/></label>
-              <label className="research-scope-toggle"><input type="checkbox" checked={researchAllCompanySources} onChange={event=>setResearchAllCompanySources(event.target.checked)}/><span>Search all indexed sources for {selectedDocument?.company ?? 'this company'}</span></label>
-              <button type="submit" disabled={researchBusy||researchQuestion.trim().length<5}>Ask FINN <ArrowRight size={14}/></button>
+              <label className="research-scope-toggle"><input type="checkbox" checked={researchAllCompanySources} disabled={homeScopeNeedsConfirmation&&!homeScopeDocumentId} onChange={event=>setResearchAllCompanySources(event.target.checked)}/><span>Search all indexed sources for {documents.find(doc=>doc.id===(homeScopeNeedsConfirmation?homeScopeDocumentId:documentId))?.company ?? 'this company'}</span></label>
+              <button type="submit" disabled={researchBusy||researchQuestion.trim().length<5||(homeScopeNeedsConfirmation&&!homeScopeDocumentId)}>Ask FINN <ArrowRight size={14}/></button>
             </form>
           </>}
           <div className="document-library"><div className="section-heading"><div><h3>Document library</h3><p>{documents.length} indexed primary sources · choose a source, search metadata, or manage its index.</p></div></div><div className="document-library-tools"><label className="search-field"><Search size={15}/><input value={documentSearch} onChange={event=>setDocumentSearch(event.target.value)} placeholder="Search company, ticker, period, or filename"/></label><select aria-label="Filter document type" value={documentTypeFilter} onChange={event=>setDocumentTypeFilter(event.target.value)}><option value="all">All source types</option>{Array.from(new Set(documents.map(doc=>doc.document_type))).sort().map(type=><option key={type}>{type}</option>)}</select></div><input ref={replaceInput} hidden type="file" accept="application/pdf,.pdf" onChange={replaceResearchDocument}/>{documentActionMessage&&<p className="workflow-message">{documentActionMessage}</p>}

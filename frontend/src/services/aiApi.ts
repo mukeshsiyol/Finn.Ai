@@ -80,15 +80,6 @@ export type ExplanationResponse = {
   notice?: string
 }
 
-export type MarketAlertExplanationRequest = {
-  company: string
-  ticker: string
-  change_pct: number | null
-  volume_ratio_20d: number | null
-  volume_threshold: number
-  price_threshold_pct: number
-}
-
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
@@ -156,14 +147,3 @@ export async function explainAnnouncement(request: AnnouncementExplanationReques
   if (typeof payload.explanation !== 'string') throw new Error('FINN received an invalid filing explanation.')
   return payload
 }
-
-export async function explainMarketAlert(request: MarketAlertExplanationRequest): Promise<ExplanationResponse> {
-  const payload = await requestJson<ExplanationResponse>('/api/market/explain', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  })
-  if (typeof payload.explanation !== 'string') throw new Error('FINN received an invalid market explanation.')
-  return payload
-}
-

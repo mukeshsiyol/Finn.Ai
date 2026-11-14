@@ -1306,6 +1306,10 @@ input::placeholder,textarea::placeholder,.research-ask input::placeholder{color:
 .home-ai-form button:disabled{cursor:not-allowed;opacity:.6}
 .home-ai-entry>small{grid-column:1/-1;color:var(--muted);font-size:10px;line-height:1.45}
 .home-ai-no-source{justify-self:start;background:var(--surface-muted);color:var(--ink)}
+.home-ai-form button:focus-visible,.home-ai-form input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ai-scope-prompt{margin:14px 0;padding:12px 14px;border:1px solid var(--accent);border-radius:10px;background:var(--accent-soft);color:var(--ink);font-size:12px;line-height:1.5}
+.ai-scope-prompt>b{font-size:13px}.ai-scope-prompt>p{margin:4px 0;color:var(--ink-soft)}.ai-scope-prompt blockquote{margin:8px 0 0;padding:8px 10px;border-left:2px solid var(--accent);color:var(--ink);overflow-wrap:anywhere}
+.ai-transcript-note{margin:14px 0 8px;color:var(--muted);font-size:11px;line-height:1.5}
 .ai-conversation{display:grid;gap:12px;margin:16px 0}
 .ai-conversation-empty{margin:14px 0;padding:13px 15px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12px;line-height:1.5}
 .ai-exchange{display:grid;gap:9px;min-width:0}
@@ -1314,11 +1318,19 @@ input::placeholder,textarea::placeholder,.research-ask input::placeholder{color:
 .ai-user-message>p{margin:4px 0 0;color:var(--ink);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .ai-assistant-message{min-width:0;padding:14px;border:1px solid var(--line);border-radius:3px 12px 12px;background:var(--surface)}
 .ai-assistant-message .answer-heading{color:var(--accent);font-size:12px}
-.ai-answer-text{margin:10px 0;color:var(--ink);font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere}
+.ai-answer-text{margin:10px 0;color:var(--ink);font-size:13px;line-height:1.65;overflow-wrap:anywhere;min-width:0}
+.ai-answer-text> :first-child{margin-top:0}.ai-answer-text> :last-child{margin-bottom:0}
+.ai-answer-text p{margin:8px 0}.ai-answer-text ul,.ai-answer-text ol{margin:8px 0;padding-left:22px}.ai-answer-text li{padding-left:3px;margin:4px 0}.ai-answer-text strong{font-weight:700;color:var(--ink)}
+.ai-markdown-heading{margin:15px 0 6px;color:var(--ink);font-size:15px;line-height:1.35;font-weight:700}.ai-markdown-heading:first-child{margin-top:0}
+.ai-markdown-table-wrap{max-width:100%;margin:10px 0;overflow-x:auto;border:1px solid var(--line);border-radius:8px;overscroll-behavior-inline:contain}
+.ai-markdown-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.45}.ai-markdown-table th,.ai-markdown-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;font-variant-numeric:tabular-nums}.ai-markdown-table th{background:var(--surface-muted);font-weight:700}.ai-markdown-table tr:last-child td{border-bottom:0}
+.ai-answer-text code{padding:1px 4px;border-radius:4px;background:var(--surface-muted);font-size:.92em}.ai-markdown-quote{margin:10px 0;padding:8px 11px;border-left:2px solid var(--line);color:var(--ink-soft)}.ai-markdown-quote p{margin:3px 0}
+.ai-inline-citation{display:inline-flex;align-items:center;margin:0 2px;padding:0 5px;border:1px solid var(--line);border-radius:5px;color:var(--accent);font-size:.9em;font-weight:700;text-decoration:none;white-space:nowrap}.ai-inline-citation:hover{text-decoration:underline}.ai-citation-unverified{color:#F2BC68;text-decoration:underline dotted;text-underline-offset:2px}
 .ai-answer-note,.ai-pending-message{display:block;margin:8px 0;color:var(--muted);font-size:11px;line-height:1.45}
 .ai-error-message{margin:10px 0 0;padding:10px 12px;border:1px solid rgba(227,109,101,.3);border-radius:8px;background:rgba(227,109,101,.08);color:#F0A29B;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .ai-assistant-message .source-citation{border-color:var(--line);color:var(--ink-soft)}
 .ai-assistant-message .source-citation blockquote{color:var(--ink-soft);overflow-wrap:anywhere}
+.ai-source-filename{margin:8px 0;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
 @media(max-width:720px){
   .home-ai-entry{grid-template-columns:minmax(0,1fr);gap:10px;padding:13px}
   .home-ai-entry>small{grid-column:1}
