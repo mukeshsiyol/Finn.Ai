@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, Bell, BriefcaseBusiness, FileText, LayoutDashboard, RefreshCw, Search, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp, Upload, Trash2, RotateCw } from 'lucide-react'
 import { buildAccountHistory, deriveLedger, evaluateWatchlistAlert, loadPortfolioTransactions, positionAtDate, type LedgerPosition, type PortfolioTransaction, type TransactionKind } from './portfolioLedger'
+import { askResearchQuestion, explainAnnouncement as explainAnnouncementApi, getResearchDocumentDependencies, getResearchDocuments, type CitationFailure, type ResearchQueryResponse, type ResearchQueryScope } from './services/aiApi'
+import { AIConversation, type AIConversationExchange } from './components/ai/AIConversation'
 
 type Company = { name: string; ticker: string; sector: string; market_status: 'available' | 'unavailable'; reason?: string; session_date?: string; price_updated_at?: string; checked_at?: string; source_name?: string; currency?: string; price?: number; previous_close?: number | null; change_pct?: number | null; volume?: number | null; average_volume_20d?: number | null; volume_ratio_20d?: number | null; unusual_volume?: boolean; unusual_price?: boolean }
 type Portfolio = { source: string; retrieved_at: string; last_successful_update?: string | null; notice: string; companies: Company[]; available_count: number; alert_count: number; alerts: (Company & { alert_types?: string[] })[]; settings: { volume_multiple: number; price_move_pct: number } }
@@ -8,10 +10,9 @@ type Announcement = { id: string; company: string; ticker: string; subject: stri
 type AlertHistoryItem = { id: string; kind: 'filing' | 'market'; ticker: string; company: string; subject?: string; details?: string; filed_at?: string; event_at: string; session_date?: string; source_url: string; source_name?: string; exchange?: string; category: string; signal_type?: string; importance: number; priority: string; rule_explanation?: string; change_pct?: number | null; price_threshold_pct?: number | null; previous_close?: number | null; volume_ratio_20d?: number | null; volume_threshold?: number | null; volume?: number | null; average_volume_20d?: number | null; price?: number | null; is_verified_example?: boolean; is_read: boolean }
 type AlertView = 'all' | 'filings' | 'price' | 'volume'
 type FilingFilter = 'all' | 'results' | 'corporate' | 'shareholding' | 'dividend' | 'board' | 'mergers'
-type ResearchSource = { id: string; document_id?: string; source_url?: string; filename: string; document_type: string; reporting_period: string; page: number; excerpt: string }
-type ResearchDocument = { id: string; company: string; ticker: string; filename: string; document_type: string; reporting_period: string; pages: number; source_url?: string; superseded_by?: string; replaces?: string; version_number?: number; indexing_status?: 'pending'|'processing'|'indexed'|'failed'; index_error?: string }
+type ResearchSource = ResearchQueryResponse['sources'][number]
+type ResearchDocument = import('./services/aiApi').ResearchDocumentSummary
 type ResearchEvidenceQuality = { coverage: 'limited'|'moderate'|'broad'; confidence: 'low'|'moderate'; quality: string; independence: string; source_domains: number; near_duplicate_passage_pairs: number; compared_passage_pairs: number; source_pages: number; documents: number; document_types: number; note: string }
-type CitationFailure = { type: 'missing_source'|'page_mapping'|'unsupported_claim'; citation_id?: string; page?: number; expected_page?: number; claim?: string; reason: string }
 type ResearchVerification = { status: string; failures: CitationFailure[]; note: string }
 type Holding = LedgerPosition
 type PricePoint = { date: string; close: number }
@@ -112,10 +113,11 @@ function App() {
   const [documentId, setDocumentId] = useState('')
   const [researchQuestion, setResearchQuestion] = useState('')
   const [researchAllCompanySources, setResearchAllCompanySources] = useState(false)
-  const [researchAnswer, setResearchAnswer] = useState('')
-  const [researchMode, setResearchMode] = useState('')
-  const [researchSources, setResearchSources] = useState<ResearchSource[]>([])
-  const [researchVerification, setResearchVerification] = useState<ResearchVerification|null>(null)
+  const [quickAskExchanges, setQuickAskExchanges] = useState<AIConversationExchange[]>([])
+  const [homeAIQuestion, setHomeAIQuestion] = useState('')
+  const [homeQuestionHandoff, setHomeQuestionHandoff] = useState<{ id: string; question: string; scope: ResearchQueryScope } | null>(null)
+  const consumedHomeHandoff = useRef<string | null>(null)
+  const researchRequestLock = useRef(false)
   const [researchBusy, setResearchBusy] = useState(false)
   const [researchMessage, setResearchMessage] = useState('')
   const [researchFilename, setResearchFilename] = useState('')
@@ -279,9 +281,7 @@ function App() {
   }
 
   async function loadDocuments(preferredId = ''): Promise<ResearchDocument[]> {
-    const response = await fetch(`${API}/api/research/documents`)
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(payload.detail || 'Could not load indexed research documents. Check the backend and retry.')
+    const payload = await getResearchDocuments()
     const loaded: ResearchDocument[] = Array.isArray(payload.documents) ? payload.documents : []
     setDocuments(loaded)
     setAiEnabled(Boolean(payload.ai_enabled))
@@ -311,6 +311,17 @@ function App() {
       window.removeEventListener('hashchange', syncPageFromUrl)
     }
   }, [])
+
+  useEffect(() => {
+    if (active !== 'Research' || !homeQuestionHandoff || consumedHomeHandoff.current === homeQuestionHandoff.id) return
+    consumedHomeHandoff.current = homeQuestionHandoff.id
+    const handoff = homeQuestionHandoff
+    setHomeQuestionHandoff(null)
+    setHomeAIQuestion('')
+    setResearchTab('ask')
+    setResearchQuestion(handoff.question)
+    void runResearchQuestion(handoff.question, handoff.scope)
+  }, [active, homeQuestionHandoff])
 
   const allCompanies = useMemo(() => [...(portfolio?.companies ?? []), ...customCompanies], [portfolio, customCompanies])
   const trackedCompanies = useMemo(() => {
@@ -533,7 +544,6 @@ function App() {
     return next
   },[accountHistory,heldCompanies])
   const accountPoints=useMemo(()=>buildAccountHistory(transactions,currentAccountHistory),[transactions,currentAccountHistory])
-  const researchVerificationWithFailures=researchVerification&&researchVerification.failures.length>0?researchVerification:null
   const bullBearVerificationWithFailures=bullBear?.verification&&bullBear.verification.failures.length>0?bullBear.verification:null
   const accountRangeCount={'1W':5,'1M':22,'3M':64,'1Y':252} as const
   const accountChartPoints=useMemo(()=>accountPoints.slice(-accountRangeCount[accountRange]),[accountPoints,accountRange])
@@ -665,9 +675,7 @@ function App() {
   async function explainAnnouncement(item: Announcement) {
     setExplaining(item.id)
     try {
-      const response = await fetch(`${API}/api/announcements/explain`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(item) })
-      const payload = await response.json()
-      if (!response.ok) throw new Error(payload.detail || 'AI explanation unavailable.')
+      const payload = await explainAnnouncementApi(item)
       setExplanations(previous => ({ ...previous, [item.id]: payload.explanation }))
       setExplanationModes(previous => ({ ...previous, [item.id]: payload.mode ?? (payload.ai_generated ? 'ai_grounded' : 'rule_based') }))
     } catch (error) {
@@ -694,10 +702,6 @@ function App() {
       if (!loaded.some(doc => doc.id === payload.id)) throw new Error('The PDF uploaded, but FINN could not refresh the document list. Retry the page or restart the backend.')
       setResearchMessage(`${payload.filename} indexed · ${payload.pages} pages`)
       setResearchFilename('')
-      setResearchAnswer('')
-      setResearchMode('')
-      setResearchSources([])
-      setResearchVerification(null)
       setDocumentActionMessage('')
       setDocumentUploadState({ filename: payload.filename, status: 'indexed', message: `Indexed · ${payload.pages} pages` })
     } catch (error) {
@@ -708,9 +712,7 @@ function App() {
 
   async function deleteResearchDocument(doc: ResearchDocument) {
     try {
-      const dependencyResponse = await fetch(`${API}/api/research/documents/${encodeURIComponent(doc.id)}/dependencies`)
-      const dependencies = await dependencyResponse.json().catch(() => ({}))
-      if (!dependencyResponse.ok) throw new Error(dependencies.detail || 'Could not check document dependencies.')
+      const dependencies = await getResearchDocumentDependencies(doc.id)
       const warning = `Delete ${doc.filename} (version ${doc.version_number ?? 1})?\n\nThis source is used by ${dependencies.financial_figures ?? 0} financial figures and ${dependencies.guidance_records ?? 0} management guidance records. Linked entries and their citations will also be removed. Other document versions are kept.`
       if (!window.confirm(warning)) return
       setDocumentActionMessage('Removing the document and linked records…')
@@ -718,7 +720,7 @@ function App() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || 'Could not delete this document.')
       const loaded = await loadDocuments()
-      if (doc.id === documentId) { setResearchAnswer(''); setResearchSources([]); setFinancialPeriods([]); setPromiseRows([]); setBullBear(null) }
+      if (doc.id === documentId) { setFinancialPeriods([]); setPromiseRows([]); setBullBear(null) }
       setDocumentActionMessage(`${doc.filename} and its linked entries were deleted.`)
       await refreshPromises(doc.ticker)
     } catch (error) { setDocumentActionMessage(error instanceof Error ? error.message : 'Could not delete this document.') }
@@ -751,31 +753,53 @@ function App() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || 'Could not replace this document.')
       await loadDocuments(payload.id)
-      setResearchAnswer(''); setResearchSources([])
       setDocumentActionMessage(`${payload.filename} indexed as version ${payload.version_number ?? 2}.`)
       setDocumentUploadState({ filename: payload.filename, status: 'indexed', message: `Indexed · version ${payload.version_number ?? 2}` })
     } catch (error) { setDocumentActionMessage(error instanceof Error ? error.message : 'Could not replace this document.'); setDocumentUploadState({ filename: file.name, status: 'failed', message: error instanceof Error ? error.message : 'Replacement failed' }) }
     finally { setReplaceTargetId('') }
   }
 
+  async function runResearchQuestion(question: string, scope: ResearchQueryScope) {
+    const normalizedQuestion = question.trim()
+    if (normalizedQuestion.length < 5 || researchRequestLock.current) return
+    researchRequestLock.current = true
+    setResearchQuestion(normalizedQuestion)
+    setResearchMessage('')
+    setResearchBusy(true)
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+    setQuickAskExchanges(current => [...current, { id, question: normalizedQuestion, pending: true }])
+    requestAnimationFrame(() => document.getElementById('ai-conversation')?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }))
+    try {
+      const response = await askResearchQuestion({ ...scope, question: normalizedQuestion })
+      setQuickAskExchanges(current => current.map(exchange => exchange.id === id ? { ...exchange, response, pending: false } : exchange))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Research query failed. Please try again.'
+      setQuickAskExchanges(current => current.map(exchange => exchange.id === id ? { ...exchange, pending: false, error: message } : exchange))
+    } finally {
+      researchRequestLock.current = false
+      setResearchBusy(false)
+    }
+  }
+
   async function askResearch(event: any) {
     event.preventDefault()
     if (!documentId) { setResearchMessage('Upload a primary-source PDF first.'); return }
-    setResearchBusy(true)
-    setResearchMessage('Searching the selected source…')
-    try {
-      const requestScope = researchAllCompanySources && selectedDocument ? { ticker: selectedDocument.ticker } : { document_id: documentId }
-      const response = await fetch(`${API}/api/research/query`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...requestScope, question: researchQuestion }) })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.detail || 'Research query failed.')
-      setResearchAnswer(payload.answer)
-      setResearchMode(payload.mode)
-      setResearchSources(payload.sources)
-      setResearchVerification(payload.verification ?? null)
-      setResearchMessage(payload.mode === 'evidence_only' ? 'Evidence found · model synthesis unavailable; review the cited passages' : payload.mode === 'ai_grounded' ? 'AI answer grounded in retrieved pages' : payload.mode === 'extractive_local' ? 'Answer extracted from source text · not model-generated' : payload.mode === 'no_matching_evidence' ? 'No matching passage found. Try a more specific question.' : 'Source evidence retrieved')
-    } catch (error) {
-      setResearchMessage(error instanceof Error ? error.message : 'Research query failed.')
-    } finally { setResearchBusy(false) }
+    if (researchBusy || researchRequestLock.current) return
+    const requestScope: ResearchQueryScope = researchAllCompanySources && selectedDocument
+      ? { ticker: selectedDocument.ticker }
+      : { document_id: documentId }
+    await runResearchQuestion(researchQuestion, requestScope)
+  }
+
+  function submitHomeQuestion(event: any) {
+    event.preventDefault()
+    const question = homeAIQuestion.trim()
+    if (question.length < 5 || !selectedDocument || homeQuestionHandoff || researchBusy || researchRequestLock.current) return
+    const scope: ResearchQueryScope = researchAllCompanySources
+      ? { ticker: selectedDocument.ticker }
+      : { document_id: documentId || selectedDocument.id }
+    setHomeQuestionHandoff({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, question, scope })
+    navigate('Research', 'research')
   }
 
   async function saveQuarterlyFigures(event: any) {
@@ -990,6 +1014,11 @@ function App() {
       {active==='Home'&&<>
         <div className="eyebrow"><span>FINN INVESTOR DESK</span><i/> DAILY BRIEFING</div>
         <section className="greeting"><div><h1>Today’s briefing</h1><p>Your portfolio, relevant signals, and the latest company updates.</p></div></section>
+        <section className="home-ai-entry" aria-labelledby="home-ai-title">
+          <div className="home-ai-heading"><span className="home-ai-mark"><Sparkles size={15}/></span><div><b id="home-ai-title">FINN AI</b><p>Ask about an indexed company source and continue in Research.</p></div></div>
+          {selectedDocument ? <form onSubmit={submitHomeQuestion} className="home-ai-form"><label className="sr-only" htmlFor="home-ai-question">Ask FINN a research question</label><input id="home-ai-question" value={homeAIQuestion} onChange={event=>setHomeAIQuestion(event.target.value)} minLength={5} maxLength={500} required placeholder="Ask a question about your research sources…"/><button type="submit" disabled={researchBusy||Boolean(homeQuestionHandoff)||homeAIQuestion.trim().length<5}><span>{homeQuestionHandoff?'Opening Research…':'Ask FINN'}</span><ArrowRight size={15}/></button></form> : <button className="home-ai-no-source" onClick={()=>navigate('Research','research')}>Add a source in Research to ask FINN <ArrowRight size={14}/></button>}
+          <small>{selectedDocument ? `Uses ${selectedDocument.company} · ${selectedDocument.document_type} · ${selectedDocument.reporting_period} selected in Research. Conversation stays in this session and is not saved.` : 'Conversation history is not saved.'}</small>
+        </section>
         {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
         <section className="home-coverage-summary" aria-label="Watchlist price coverage">
           <div><span className="eyebrow-mini">TRACKED PRICE COVERAGE</span><strong className={trackedCompanies.length&&watchlistPricedCount<trackedCompanies.length?'coverage-partial':''}>{trackedCompanies.length?`${watchlistPricedCount}/${trackedCompanies.length}`:'—'}</strong><small>{trackedCompanies.length?'tracked companies with quotes dated within 5 days':'No companies tracked'}</small></div>
@@ -1094,8 +1123,16 @@ function App() {
         <section className="research-workflow anchor-section" id="research"><div className="section-heading"><div><h2>Primary-source company research</h2><p>Upload an annual report or earnings-call transcript, then ask a question with page citations.</p></div><span className="market-source">{aiEnabled?`${aiProvider} available`:'Local retrieval active'}</span></div>
           <div className="research-pane" hidden={researchTab!=='ask'}>
           <form className="upload-panel" onSubmit={uploadResearch}><label>Company<input name="company" required placeholder="e.g. Reliance Industries"/></label><label>NSE ticker<input name="ticker" required placeholder="e.g. RELIANCE.NS"/></label><label>Source type<select name="document_type" required><option>Annual report</option><option>Quarterly results</option><option>Earnings-call transcript</option><option>Investor presentation</option></select></label><label>Reporting period<input name="reporting_period" required placeholder="e.g. FY2026 or Q2 FY2027"/></label><label>Official source URL (optional)<input name="source_url" type="url" placeholder="https://www.nseindia.com/..."/></label><label className="file-picker"><Upload size={16}/>{researchFilename||'Choose PDF'}<input type="file" name="file" accept="application/pdf,.pdf" required onChange={event=>setResearchFilename(event.target.files?.[0]?.name ?? '')}/></label><button type="submit" disabled={researchBusy}>Index primary source</button></form>{documentUploadState&&<p className={`indexing-message ${documentUploadState.status}`} role="status"><b>{documentUploadState.status}</b> · {documentUploadState.filename} · {documentUploadState.message}</p>}<small className="upload-hint">Text-searchable PDFs only · maximum 45 MB. Tracked-company names and tickers are checked as a pair. Scanned image PDFs need OCR before upload.</small>
-          {documents.length>0&&<form className="question-panel" onSubmit={askResearch}><label>Source document<select value={documentId} onChange={event=>{setDocumentId(event.target.value);setResearchAllCompanySources(false)}}>{documents.map(doc=><option key={doc.id} value={doc.id}>{doc.company} · {doc.document_type} · {doc.reporting_period} ({doc.pages} pages)</option>)}</select></label><label>Your question<input value={researchQuestion} onChange={event=>setResearchQuestion(event.target.value)} minLength={5} required placeholder="What did management say about margins?"/></label><label className="research-scope-toggle"><input type="checkbox" checked={researchAllCompanySources} onChange={event=>setResearchAllCompanySources(event.target.checked)}/><span>Search all indexed sources for {selectedDocument?.company ?? 'this company'}</span></label><button type="submit" disabled={researchBusy}>Ask FINN <ArrowRight size={14}/></button></form>}
-          {researchMessage&&<p className="workflow-message">{researchMessage}</p>}{researchVerificationWithFailures&&<div className="citation-diagnostics" role="alert"><b>Citation verification failed · synthesis withheld</b><ul>{researchVerificationWithFailures.failures.map((failure,index)=><li key={`${failure.type}-${failure.citation_id??index}`}><strong>{citationFailureLabel(failure.type)}</strong>{failure.citation_id&&<span> · [{failure.citation_id}]</span>}{failure.page&&<span> · page {failure.page}{failure.expected_page?` (expected ${failure.expected_page})`:''}</span>}<p>{failure.reason}</p>{failure.claim&&<blockquote>{failure.claim}</blockquote>}</li>)}</ul><small>{researchVerificationWithFailures.note}</small></div>}{researchAnswer&&<div className="research-answer"><div className="answer-heading"><Sparkles size={16}/><b>{researchMode==='ai_grounded'?'FINN model-assisted research':researchMode==='extractive_local'?'FINN extractive answer':'FINN source evidence'}</b></div><p>{researchAnswer}</p><small>Management statements are quoted from the source. Any FINN interpretation is labeled separately.</small>{researchSources.map(source=><details className="source-citation" key={source.id} open><summary>[{source.id}] {source.filename} · {source.document_type} · {source.reporting_period} · p. {source.page}</summary>{citationHref(source)&&<a href={citationHref(source)} target="_blank" rel="noreferrer">Open exact source page ↗</a>}<blockquote>{source.excerpt}</blockquote></details>)}</div>}
+          {researchMessage&&<p className="workflow-message" role="status">{researchMessage}</p>}
+          {documents.length>0&&<>
+            <AIConversation exchanges={quickAskExchanges} citationHref={citationHref}/>
+            <form className="question-panel" onSubmit={askResearch}>
+              <label>Source document<select value={documentId} onChange={event=>{setDocumentId(event.target.value);setResearchAllCompanySources(false)}}>{documents.map(doc=><option key={doc.id} value={doc.id}>{doc.company} · {doc.document_type} · {doc.reporting_period} ({doc.pages} pages)</option>)}</select></label>
+              <label>Your question<input value={researchQuestion} onChange={event=>setResearchQuestion(event.target.value)} minLength={5} maxLength={500} required placeholder="What did management say about margins?"/></label>
+              <label className="research-scope-toggle"><input type="checkbox" checked={researchAllCompanySources} onChange={event=>setResearchAllCompanySources(event.target.checked)}/><span>Search all indexed sources for {selectedDocument?.company ?? 'this company'}</span></label>
+              <button type="submit" disabled={researchBusy||researchQuestion.trim().length<5}>Ask FINN <ArrowRight size={14}/></button>
+            </form>
+          </>}
           <div className="document-library"><div className="section-heading"><div><h3>Document library</h3><p>{documents.length} indexed primary sources · choose a source, search metadata, or manage its index.</p></div></div><div className="document-library-tools"><label className="search-field"><Search size={15}/><input value={documentSearch} onChange={event=>setDocumentSearch(event.target.value)} placeholder="Search company, ticker, period, or filename"/></label><select aria-label="Filter document type" value={documentTypeFilter} onChange={event=>setDocumentTypeFilter(event.target.value)}><option value="all">All source types</option>{Array.from(new Set(documents.map(doc=>doc.document_type))).sort().map(type=><option key={type}>{type}</option>)}</select></div><input ref={replaceInput} hidden type="file" accept="application/pdf,.pdf" onChange={replaceResearchDocument}/>{documentActionMessage&&<p className="workflow-message">{documentActionMessage}</p>}
             {visibleDocuments.length?<div className="document-list">{visibleDocuments.map(doc=><article className={`document-library-row ${doc.superseded_by?'superseded-document':''}`} key={doc.id}><FileText size={16}/><div className="document-library-copy"><b>{doc.company} · {doc.ticker} {doc.superseded_by&&<em>Previous version</em>}</b><span className="document-library-filename" title={doc.filename}>{doc.filename}</span><span className="document-library-details">{doc.document_type} · {doc.reporting_period} · {doc.pages} pages</span><small>Version {doc.version_number??1} · <strong className={`index-status ${doc.indexing_status??'indexed'}`}>{doc.indexing_status??'indexed'}</strong>{doc.index_error&&` · ${doc.index_error}`}{doc.source_url&&<> · <a href={doc.source_url} target="_blank" rel="noreferrer">Original source ↗</a></>} <a href={`${API}/api/research/documents/${encodeURIComponent(doc.id)}/file#page=1`} target="_blank" rel="noreferrer">Open PDF ↗</a></small></div><div className="document-library-actions"><button className="document-select-action" onClick={()=>setDocumentId(doc.id)}>Select</button><details className="document-actions-menu"><summary aria-label={`More actions for ${doc.company} ${doc.document_type}`}>More</summary><div><button onClick={()=>{setReplaceTargetId(doc.id);replaceInput.current?.click()}}><Upload size={13}/> Replace</button><button onClick={()=>void reindexResearchDocument(doc)}><RotateCw size={13}/> Re-index</button><button className="remove-action" onClick={()=>void deleteResearchDocument(doc)}><Trash2 size={13}/> Delete</button></div></details></div></article>)}</div>:<div className="state-card">{documents.length?'No documents match these filters.':'Upload a primary source to start your research library.'}</div>}
           </div>
