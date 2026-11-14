@@ -65,7 +65,13 @@ def _manifest() -> list[dict]:
 
 
 def list_documents() -> list[dict]:
-    return [{key: doc[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url", "superseded_by") if key in doc} for doc in _manifest()]
+    result = []
+    for doc in _manifest():
+        item = {key: doc[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url", "superseded_by", "replaces", "version_number", "indexed_at", "indexing_status", "index_error") if key in doc}
+        item.setdefault("version_number", 1)
+        item.setdefault("indexing_status", "indexed")
+        result.append(item)
+    return result
 
 
 async def add_pdf(company: str, ticker: str, document_type: str, reporting_period: str, upload: UploadFile) -> dict:
@@ -94,7 +100,7 @@ async def add_pdf(company: str, ticker: str, document_type: str, reporting_perio
     doc_id = str(uuid4())
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     path = UPLOADS_DIR / f"{doc_id}.pdf"
-    record = {"id": doc_id, "company": company[:120], "ticker": ticker[:32].upper(), "filename": filename, "document_type": document_type[:60], "reporting_period": reporting_period[:80], "pages": page_count, "stored_name": path.name}
+    record = {"id": doc_id, "company": company[:120], "ticker": ticker[:32].upper(), "filename": filename, "document_type": document_type[:60], "reporting_period": reporting_period[:80], "pages": page_count, "stored_name": path.name, "indexing_status": "indexed", "indexed_at": datetime.now(timezone.utc).isoformat(), "version_number": 1}
     with _manifest_lock:
         docs = _manifest()
         digest = hashlib.sha256(content).hexdigest()
@@ -111,7 +117,7 @@ async def add_pdf(company: str, ticker: str, document_type: str, reporting_perio
         docs.append(record)
         path.write_bytes(content)
         MANIFEST_PATH.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in record}
+    return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url", "indexing_status") if key in record}
 
 
 def remove_document(doc_id: str) -> dict:
@@ -134,8 +140,15 @@ def reindex_document(doc_id: str) -> dict:
     record = next((doc for doc in _manifest() if doc.get("id") == doc_id), None)
     if not record:
         raise HTTPException(status_code=404, detail="Source document not found.")
+    with _manifest_lock:
+        docs = _manifest()
+        for item in docs:
+            if item.get("id") == doc_id:
+                item.update({"indexing_status": "processing", "index_error": None})
+        MANIFEST_PATH.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
     path = UPLOADS_DIR / record.get("stored_name", "")
     if not path.is_file() or path.parent != UPLOADS_DIR:
+        _set_index_status(doc_id, "failed", "Stored PDF is missing.")
         raise HTTPException(status_code=404, detail="Stored PDF is missing. Replace or upload it again.")
     with _page_cache_lock:
         _page_text_cache.pop(str(path), None)
@@ -148,10 +161,25 @@ def reindex_document(doc_id: str) -> dict:
         with _page_cache_lock:
             _page_text_cache[str(path)] = (stat.st_mtime_ns, stat.st_size, pages)
     except HTTPException:
+        _set_index_status(doc_id, "failed", "No selectable text was found. OCR this PDF before re-indexing.")
         raise
     except Exception as exc:
+        _set_index_status(doc_id, "failed", "Could not re-index this PDF.")
         raise HTTPException(status_code=422, detail="Could not re-index this PDF.") from exc
-    return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in record}
+    _set_index_status(doc_id, "indexed", None)
+    return {key: record[key] for key in ("id", "company", "ticker", "filename", "document_type", "reporting_period", "pages", "source_url") if key in record} | {"indexing_status": "indexed"}
+
+
+def _set_index_status(doc_id: str, status: str, error: str | None = None) -> None:
+    with _manifest_lock:
+        docs = _manifest()
+        for item in docs:
+            if item.get("id") == doc_id:
+                item["indexing_status"] = status
+                item["indexed_at"] = datetime.now(timezone.utc).isoformat() if status == "indexed" else item.get("indexed_at")
+                item["index_error"] = error
+                break
+        MANIFEST_PATH.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def validate_page_excerpt(document_id: str, page_number: int, excerpt: str) -> float:
@@ -228,3 +256,46 @@ def retrieve_pages(doc_id: str, question: str, limit: int = 5) -> tuple[dict, li
         excerpt = "\n\n".join(excerpt_parts).strip()
         sources.append({"id": f"S{rank}", "document_id": record["id"], "source_url": record.get("source_url"), "filename": record["filename"], "document_type": record["document_type"], "reporting_period": record["reporting_period"], "page": page_number, "relevance": round(score, 3), "excerpt": excerpt[:2400], "has_table_rows": bool(tables)})
     return record, sources
+
+
+def retrieve_ticker_pages(ticker: str, question: str, limit: int = 8) -> tuple[dict, list[dict]]:
+    """Retrieve a bounded, document-diverse evidence set across one company's indexed PDFs."""
+    normalized = ticker.strip().upper().removesuffix(".NS")
+    records = [
+        item for item in _manifest()
+        if item.get("ticker", "").strip().upper().removesuffix(".NS") == normalized
+        and item.get("indexing_status", "indexed") == "indexed"
+        and not item.get("superseded_by")
+    ]
+    if not records:
+        raise HTTPException(status_code=404, detail="No indexed source documents were found for this company.")
+
+    # Retrieve a small candidate set per source before merging. This prevents a long
+    # annual report from consuming every citation slot and keeps cross-document evidence visible.
+    candidates: list[tuple[float, float, dict]] = []
+    for record in records:
+        _, matches = retrieve_pages(record["id"], question, limit=max(2, min(4, limit)))
+        top_score = max((item.get("relevance", 0) for item in matches), default=0)
+        if not top_score:
+            continue
+        for source in matches:
+            normalized_score = source.get("relevance", 0) / top_score
+            candidates.append((normalized_score, source.get("relevance", 0), source))
+
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    merged: list[dict] = []
+    per_document: Counter[str] = Counter()
+    seen_pages: set[tuple[str, int]] = set()
+    for normalized_score, _, source in candidates:
+        document_id = source["document_id"]
+        page_key = (document_id, source["page"])
+        if page_key in seen_pages or per_document[document_id] >= 3:
+            continue
+        seen_pages.add(page_key)
+        per_document[document_id] += 1
+        merged.append({**source, "id": f"S{len(merged) + 1}", "relevance": round(normalized_score, 3)})
+        if len(merged) >= limit:
+            break
+
+    representative = records[0]
+    return {"company": representative.get("company", normalized), "ticker": normalized, "filename": f"{len(records)} indexed source documents", "document_count": len(records)}, merged

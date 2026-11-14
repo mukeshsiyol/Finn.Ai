@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 
@@ -11,6 +11,7 @@ from app.services.research.documents import REPORTS_DIR, _manifest
 
 FINANCIALS_PATH = REPORTS_DIR / "financials.json"
 PROMISES_PATH = REPORTS_DIR / "promises.json"
+EVIDENCE_PATH = REPORTS_DIR / "evidence.json"
 _lock = Lock()
 METRICS = {"revenue", "ebitda", "pbt", "pat", "o2c_ebitda"}
 CORE_METRICS = {"revenue", "ebitda", "pbt", "pat", "o2c_ebitda"}
@@ -41,6 +42,48 @@ def _save(path: Path, rows: list[dict]) -> None:
         path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _read_evidence() -> list[dict]:
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    with _lock:
+        if EVIDENCE_PATH.exists():
+            try:
+                payload = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
+                return payload if isinstance(payload, list) else []
+            except (OSError, json.JSONDecodeError):
+                return []
+        financial_rows = _read(FINANCIALS_PATH)
+        promise_rows = _read(PROMISES_PATH)
+        evidence = []
+        for row in financial_rows:
+            source = row.get("source") or {}
+            evidence.append({**row, "id": row.get("id") or f"figure:{row.get('ticker')}:{row.get('period')}:{row.get('metric')}:{row.get('statement_basis', 'consolidated')}:{row.get('figure_type', 'reported')}", "evidence_kind": "financial_value", "company": source.get("company"), "created_at": row.get("created_at")})
+        for row in promise_rows:
+            source = row.get("source") or {}
+            evidence.append({**row, "evidence_kind": "management_guidance", "company": source.get("company"), "created_at": row.get("created_at")})
+        EVIDENCE_PATH.write_text(json.dumps(evidence, ensure_ascii=False, indent=2), encoding="utf-8")
+        return evidence
+
+
+def _financial_evidence() -> list[dict]:
+    return [item for item in _read_evidence() if item.get("evidence_kind", "financial_value") == "financial_value"]
+
+
+def _guidance_evidence() -> list[dict]:
+    return [item for item in _read_evidence() if item.get("evidence_kind") == "management_guidance"]
+
+
+def list_financial_evidence(ticker: str) -> list[dict]:
+    normalized = ticker.strip().upper()
+    return sorted((item for item in _read_evidence() if item.get("ticker") == normalized), key=lambda item: (item.get("period") or item.get("target_period") or "", item.get("metric", "")), reverse=True)
+
+
+def document_dependencies(document_id: str) -> dict:
+    rows = [item for item in _read_evidence() if (item.get("source") or {}).get("document_id") == document_id]
+    financial = [item for item in rows if item.get("evidence_kind") == "financial_value"]
+    guidance = [item for item in rows if item.get("evidence_kind") == "management_guidance"]
+    return {"financial_figures": len(financial), "guidance_records": len(guidance), "records": [{"kind": item.get("evidence_kind"), "metric": item.get("metric"), "period": item.get("period") or item.get("target_period"), "page": (item.get("source") or {}).get("page")} for item in rows]}
+
+
 def _document(document_id: str, ticker: str, page: int) -> dict:
     doc = next((item for item in _manifest() if item.get("id") == document_id), None)
     if not doc:
@@ -49,7 +92,7 @@ def _document(document_id: str, ticker: str, page: int) -> dict:
         raise HTTPException(status_code=422, detail="The ticker must match the selected source document.")
     if page < 1 or page > int(doc["pages"]):
         raise HTTPException(status_code=422, detail=f"Source page must be between 1 and {doc['pages']}.")
-    return {"document_id": doc["id"], "source_url": doc.get("source_url"), "filename": doc["filename"], "document_type": doc["document_type"], "reporting_period": doc["reporting_period"], "page": page}
+    return {"document_id": doc["id"], "company": doc.get("company"), "source_url": doc.get("source_url"), "filename": doc["filename"], "document_type": doc["document_type"], "reporting_period": doc["reporting_period"], "page": page}
 
 
 def add_quarter(ticker: str, period: str, unit: str, page: int, excerpt: str, document_id: str, values: dict, statement_basis: str = "consolidated", figure_type: str = "reported", adjustment_note: str = "") -> list[dict]:
@@ -59,7 +102,8 @@ def add_quarter(ticker: str, period: str, unit: str, page: int, excerpt: str, do
     if statement_basis not in {"consolidated", "standalone"} or figure_type not in {"reported", "adjusted"}:
         raise HTTPException(status_code=422, detail="Choose consolidated or standalone statements and reported or adjusted figures.")
     source = {**citation, "excerpt": excerpt.strip()[:1200], "statement_basis": statement_basis, "figure_type": figure_type, "adjustment_note": adjustment_note.strip()[:500] if figure_type == "adjusted" else ""}
-    rows = _read(FINANCIALS_PATH)
+    evidence = _read_evidence()
+    rows = [item for item in evidence if item.get("evidence_kind", "financial_value") == "financial_value"]
     saved = []
     for metric, value in values.items():
         normalized_metric = metric.strip().lower()
@@ -69,13 +113,16 @@ def add_quarter(ticker: str, period: str, unit: str, page: int, excerpt: str, do
         if amount < 0 and normalized_metric in {"revenue", "ebitda"}:
             # Negative EBITDA/revenue can occur in reported statements, so retain it as filed.
             pass
-        record = {"ticker": ticker, "period": period, "metric": normalized_metric, "value": amount, "unit": unit.strip()[:24], "statement_basis": statement_basis, "figure_type": figure_type, "adjustment_note": source["adjustment_note"], "source": source}
-        rows = [row for row in rows if not (row.get("ticker") == ticker and row.get("period") == period and row.get("metric") == normalized_metric and row.get("statement_basis", "consolidated") == statement_basis and row.get("figure_type", "reported") == figure_type)]
+        record = {"id": f"figure:{ticker}:{period}:{normalized_metric}:{statement_basis}:{figure_type}:{source['adjustment_note']}", "evidence_kind": "financial_value", "company": citation.get("company"), "ticker": ticker, "period": period, "metric": normalized_metric, "value": amount, "unit": unit.strip()[:24], "statement_basis": statement_basis, "figure_type": figure_type, "adjustment_note": source["adjustment_note"], "source": source, "created_at": datetime.now(timezone.utc).isoformat()}
+        rows = [row for row in rows if not (row.get("ticker") == ticker and row.get("period") == period and row.get("metric") == normalized_metric and row.get("statement_basis", "consolidated") == statement_basis and row.get("figure_type", "reported") == figure_type and row.get("adjustment_note", "") == source["adjustment_note"])]
         rows.append(record)
         saved.append(record)
     if not saved:
         raise HTTPException(status_code=422, detail="Enter at least one of Revenue, EBITDA, PBT, or PAT.")
-    _save(FINANCIALS_PATH, rows)
+    replacement_keys = {(item["ticker"], item["period"], item["metric"], item["statement_basis"], item["figure_type"], item["adjustment_note"]) for item in saved}
+    evidence = [item for item in evidence if item.get("evidence_kind", "financial_value") != "financial_value" or (item.get("ticker"), item.get("period"), item.get("metric"), item.get("statement_basis", "consolidated"), item.get("figure_type", "reported"), item.get("adjustment_note", "")) not in replacement_keys]
+    evidence.extend(saved)
+    _save(EVIDENCE_PATH, evidence)
     return saved
 
 
@@ -89,9 +136,22 @@ def _period_from_index(index: int) -> str:
     return f"FY{year}-Q{quarter_index + 1}"
 
 
+def _period_is_complete(period: str) -> bool:
+    match = PERIOD_RE.fullmatch(period or "")
+    if not match:
+        return False
+    from calendar import monthrange
+    fiscal_year, quarter = int(match.group(1)), int(match.group(2))
+    end_month = (6, 9, 12, 3)[quarter - 1]
+    end_year = fiscal_year - 1 if quarter < 4 else fiscal_year
+    quarter_end = date(end_year, end_month, monthrange(end_year, end_month)[1])
+    india_today = (datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)).date()
+    return quarter_end <= india_today
+
+
 def quarterly_comparisons(ticker: str, statement_basis: str = "consolidated", figure_type: str = "reported", adjustment_note: str = "") -> dict:
     ticker = ticker.strip().upper()
-    rows = [row for row in _read(FINANCIALS_PATH) if row.get("ticker") == ticker and row.get("statement_basis", "consolidated") == statement_basis and row.get("figure_type", "reported") == figure_type and (figure_type != "adjusted" or row.get("adjustment_note", "") == adjustment_note.strip())]
+    rows = [row for row in _financial_evidence() if row.get("ticker") == ticker and row.get("statement_basis", "consolidated") == statement_basis and row.get("figure_type", "reported") == figure_type and (figure_type != "adjusted" or row.get("adjustment_note", "") == adjustment_note.strip())]
     by_key = {(row["period"], row["metric"]): row for row in rows}
     periods = sorted({row["period"] for row in rows}, key=lambda period: _period_index(period) or 0, reverse=True)
     results = []
@@ -205,7 +265,8 @@ def add_promise(ticker: str, metric: str, target_period: str, target_value: floa
     if metric == "annualized_o2c_ebitda" and not target_period.endswith("-Q2"):
         raise HTTPException(status_code=422, detail="An H1 annualized O2C run-rate must use the Q2 target period.")
     citation = _document(document_id, ticker, page)
-    rows = _read(PROMISES_PATH)
+    evidence = _read_evidence()
+    rows = [item for item in evidence if item.get("evidence_kind") == "management_guidance"]
     prior_versions = [row for row in rows if row.get("ticker") == ticker and row.get("target_period") == target_period and row.get("metric") == metric and row.get("statement_basis", "consolidated") == statement_basis and row.get("figure_type", "reported") == figure_type and row.get("adjustment_note", "") == (adjustment_note.strip() if figure_type == "adjusted" else "")]
     if statement_basis not in {"consolidated", "standalone"}:
         raise HTTPException(status_code=422, detail="Choose consolidated or standalone statement basis.")
@@ -213,16 +274,16 @@ def add_promise(ticker: str, metric: str, target_period: str, target_value: floa
         raise HTTPException(status_code=422, detail="Choose reported or adjusted financial figures.")
     if figure_type == "adjusted" and not adjustment_note.strip():
         raise HTTPException(status_code=422, detail="Describe the adjustment basis before saving adjusted guidance comparisons.")
-    promise = {"id": str(uuid4()), "ticker": ticker, "metric": metric, "target_period": target_period, "target_value": float(target_value), "unit": unit.strip()[:24], "quote": quote.strip()[:1200], "statement_basis": statement_basis, "figure_type": figure_type, "adjustment_note": adjustment_note.strip()[:500] if figure_type == "adjusted" else "", "source": citation, "created_at": datetime.now(timezone.utc).isoformat(), "revision": len(prior_versions) + 1}
-    rows.append(promise)
-    _save(PROMISES_PATH, rows)
+    promise = {"id": str(uuid4()), "evidence_kind": "management_guidance", "company": citation.get("company"), "ticker": ticker, "metric": metric, "target_period": target_period, "target_value": float(target_value), "unit": unit.strip()[:24], "quote": quote.strip()[:1200], "statement_basis": statement_basis, "figure_type": figure_type, "adjustment_note": adjustment_note.strip()[:500] if figure_type == "adjusted" else "", "source": citation, "created_at": datetime.now(timezone.utc).isoformat(), "revision": len(prior_versions) + 1}
+    evidence.append(promise)
+    _save(EVIDENCE_PATH, evidence)
     return promise
 
 
 def list_promises(ticker: str) -> list[dict]:
     ticker = ticker.strip().upper()
-    records = _read(FINANCIALS_PATH)
-    promises = [row for row in _read(PROMISES_PATH) if row.get("ticker") == ticker]
+    records = _financial_evidence()
+    promises = [row for row in _guidance_evidence() if row.get("ticker") == ticker]
     output = []
     latest_versions = {}
     for promise in promises:
@@ -230,25 +291,41 @@ def list_promises(ticker: str) -> list[dict]:
         latest_versions[key] = max(latest_versions.get(key, 0), int(promise.get("revision", 1)))
     for promise in promises:
         actual, actual_unit, actual_sources = _actual_guidance_value(ticker, promise["target_period"], promise["metric"], records, promise.get("statement_basis", "consolidated"), promise.get("figure_type", "reported"), promise.get("adjustment_note", ""))
-        if actual is not None and actual_unit != promise["unit"]:
+        comparable_metrics = {promise["metric"]}
+        if promise["metric"] == "annualized_o2c_ebitda":
+            comparable_metrics = {"o2c_ebitda"}
+        elif promise["metric"] == "revenue_growth_yoy":
+            comparable_metrics = {"revenue"}
+        elif promise["metric"] in {"ebitda_margin", "pbt_margin", "pat_margin"}:
+            comparable_metrics = {promise["metric"].removesuffix("_margin"), "revenue"}
+        comparable_inputs = [row for row in records if row.get("ticker") == ticker and row.get("period") == promise["target_period"] and row.get("metric") in comparable_metrics]
+        period_complete = _period_is_complete(promise["target_period"])
+        if not period_complete:
             actual = None
             actual_unit = None
             actual_sources = []
-            status = "unit_mismatch"
+            status = "pending"
+        elif actual is not None and actual_unit != promise["unit"]:
+            actual = None
+            actual_unit = None
+            actual_sources = []
+            status = "not_comparable"
+        elif actual is None and comparable_inputs and not any(row.get("statement_basis", "consolidated") == promise.get("statement_basis", "consolidated") and row.get("figure_type", "reported") == promise.get("figure_type", "reported") and (promise.get("figure_type", "reported") != "adjusted" or row.get("adjustment_note", "") == promise.get("adjustment_note", "")) for row in comparable_inputs):
+            status = "not_comparable"
         else:
             status = None
         target = float(promise["target_value"])
         delta = actual - target if actual is not None else None
-        if status == "unit_mismatch":
+        if status in {"pending", "not_comparable"}:
             pass
         elif actual is None:
-            status = "awaiting_actual"
-        elif abs(delta) < 0.005:
-            status = "met"
+            status = "actual_missing" if _period_is_complete(promise["target_period"]) else "pending"
+        elif abs(delta) <= max(abs(target) * 0.01, 0.005):
+            status = "achieved"
         elif delta > 0:
-            status = "above_guidance"
+            status = "exceeded"
         else:
-            status = "below_guidance"
+            status = "missed"
         key = (promise["target_period"], promise["metric"], promise.get("statement_basis", "consolidated"), promise.get("figure_type", "reported"), promise.get("adjustment_note", ""))
         is_current = int(promise.get("revision", 1)) == latest_versions[key]
         output.append({**promise, "is_current_guidance": is_current, "actual_value": round(actual, 2) if actual is not None else None, "actual_unit": actual_unit, "deviation": round(delta, 2) if delta is not None else None, "status": status, "actual_sources": actual_sources})
@@ -256,8 +333,7 @@ def list_promises(ticker: str) -> list[dict]:
 
 
 def remove_document_records(document_id: str) -> None:
-    for path in (FINANCIALS_PATH, PROMISES_PATH):
-        rows = _read(path)
-        kept = [row for row in rows if (row.get("source") or {}).get("document_id") != document_id]
-        if len(kept) != len(rows):
-            _save(path, kept)
+    rows = _read_evidence()
+    kept = [row for row in rows if (row.get("source") or {}).get("document_id") != document_id]
+    if len(kept) != len(rows):
+        _save(EVIDENCE_PATH, kept)

@@ -16,13 +16,13 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.services.announcements.nse_client import fetch_portfolio_announcements
 from app.services.announcements.processor import classify_announcement, explain_with_rules
 from app.services.intelligence.openai_service import ai_is_enabled, ai_provider_name, generate_text
-from app.services.research.documents import STOPWORDS, WORD_RE, add_pdf, list_documents, remove_document, reindex_document, retrieve_pages, UPLOADS_DIR, validate_page_excerpt
-from app.services.research.financials import add_promise, add_quarter, list_promises, quarterly_comparisons, remove_document_records
+from app.services.research.documents import STOPWORDS, WORD_RE, add_pdf, list_documents, remove_document, reindex_document, retrieve_pages, retrieve_ticker_pages, UPLOADS_DIR, validate_page_excerpt
+from app.services.research.financials import add_promise, add_quarter, document_dependencies, list_financial_evidence, list_promises, quarterly_comparisons, remove_document_records
 
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / "backend" / ".env")
@@ -71,8 +71,15 @@ class MarketAlertInput(BaseModel):
 
 
 class ResearchQuestion(BaseModel):
-    document_id: str = Field(min_length=1, max_length=64)
+    document_id: str | None = Field(default=None, min_length=1, max_length=64)
+    ticker: str | None = Field(default=None, min_length=1, max_length=32)
     question: str = Field(min_length=5, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        if bool(self.document_id) == bool(self.ticker):
+            raise ValueError("Choose either one source document or all indexed sources for a company.")
+        return self
 
 
 class QuarterlyEntry(BaseModel):
@@ -140,6 +147,71 @@ def _uncited_claim_lines(answer: str, citation_pattern: str) -> list[str]:
         if not re.search(citation_pattern, value):
             uncited.append(value)
     return uncited
+
+
+def _verify_generated_claims(answer: str, sources: list[dict], prefix: str) -> dict:
+    citation_pattern = rf"\[({prefix}\d+)\]"
+    valid_sources = {source["id"]: source for source in sources}
+    failures: list[dict] = []
+    source_ids = set(re.findall(citation_pattern, answer))
+    if not source_ids:
+        failures.append({"type": "missing_source", "reason": "The generated answer did not cite any retrieved source."})
+    for citation_id in sorted(source_ids - set(valid_sources)):
+        failures.append({"type": "missing_source", "citation_id": citation_id, "reason": "The answer cites an evidence ID that was not included in the retrieved source set."})
+
+    for source_id in sorted(source_ids & set(valid_sources)):
+        source = valid_sources[source_id]
+        page = source.get("page")
+        document_id = source.get("document_id")
+        if not source.get("filename") or not isinstance(page, int):
+            failures.append({"type": "missing_source", "citation_id": source_id, "reason": "The retrieved source is missing its file name or page number."})
+            continue
+        if document_id:
+            record = next((item for item in list_documents() if item["id"] == document_id), None)
+            source_path = UPLOADS_DIR / f"{document_id}.pdf"
+            if not record or not source_path.is_file():
+                failures.append({"type": "missing_source", "citation_id": source_id, "reason": "The source document or its stored PDF is missing."})
+            elif page < 1 or page > int(record["pages"]):
+                failures.append({"type": "page_mapping", "citation_id": source_id, "page": page, "reason": "The cited page is outside the source PDF page range."})
+
+    for line in answer.splitlines():
+        cited_on_line = re.findall(citation_pattern, line)
+        if not cited_on_line:
+            value = line.strip()
+            normalized_heading = re.sub(r"^[#*\s\d.)-]+", "", value).strip(" *_:-").lower()
+            if value and normalized_heading not in {"bull case", "bear case", "final assessment", "key assumptions", "valuation considerations", "potential catalysts", "unresolved questions", "evidence quality and confidence"}:
+                failures.append({"type": "unsupported_claim", "claim": value[:300], "reason": "This response line has no citation to supporting evidence."})
+            continue
+        for citation_id in cited_on_line:
+            source = valid_sources.get(citation_id)
+            if not source:
+                continue
+            cited_page = re.search(rf"(?:\bp(?:age)?\.?\s*(\d+)\s*\[{prefix}\d+\]|\[{prefix}\d+\]\s*\bp(?:age)?\.?\s*(\d+))", line, re.I)
+            if cited_page:
+                stated_page = int(cited_page.group(1) or cited_page.group(2))
+                if stated_page != source.get("page"):
+                    failures.append({"type": "page_mapping", "citation_id": citation_id, "page": stated_page, "expected_page": source.get("page"), "reason": f"The answer says page {stated_page}, but this source ID maps to page {source.get('page')}."})
+
+        claim_text = re.sub(citation_pattern, "", line)
+        claim_text = re.sub(r"^\s*(?:[-*•]\s*)?(?:Management stated|FINN interpretation)\s*:?\s*", "", claim_text, flags=re.I)
+        claim_terms = {term.lower().rstrip("s") for term in WORD_RE.findall(claim_text) if term.lower() not in STOPWORDS and len(term) > 2}
+        evidence_text = " ".join(valid_sources[citation_id].get("excerpt", "") for citation_id in cited_on_line if citation_id in valid_sources)
+        evidence_terms = {term.lower().rstrip("s") for term in WORD_RE.findall(evidence_text)}
+        numbers = {number.replace(",", "").rstrip("%") for number in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?%?", claim_text)}
+        evidence_numbers = {number.replace(",", "").rstrip("%") for number in re.findall(r"(?<![A-Za-z])\d[\d,]*(?:\.\d+)?%?", evidence_text)}
+        unsupported_numbers = sorted(numbers - evidence_numbers)
+        overlap = len(claim_terms & evidence_terms)
+        if unsupported_numbers:
+            failures.append({"type": "unsupported_claim", "claim": line.strip()[:300], "citation_ids": cited_on_line, "reason": f"The cited excerpts do not contain these stated figures: {', '.join(unsupported_numbers[:5])}."})
+        elif len(claim_terms) >= 6 and overlap < 2:
+            failures.append({"type": "unsupported_claim", "claim": line.strip()[:300], "citation_ids": cited_on_line, "reason": "The claim has little matching wording in its cited excerpts; review it as a possible unsupported inference."})
+
+    unique = {}
+    for failure in failures:
+        key = (failure["type"], failure.get("citation_id"), failure.get("claim"), failure.get("reason"))
+        unique[key] = failure
+    diagnostics = list(unique.values())
+    return {"status": "withheld" if diagnostics else "verified", "failures": diagnostics, "note": "Checks detect missing source IDs, explicit page mismatches, uncited lines, and unsupported figures or low text overlap. They cannot determine whether every nuanced paraphrase is semantically correct."}
 
 
 def _company_universe() -> dict:
@@ -232,6 +304,7 @@ def _market_alert_events(companies: list[dict]) -> list[dict]:
 
 def _market_snapshot(company: dict, settings: dict) -> dict:
     ticker = company["ticker"]
+    checked_at = datetime.now(timezone.utc).isoformat()
     try:
         # Use unadjusted exchange closes for current valuation and daily P&L. Adjusted
         # closes belong in the separate long-range performance series below.
@@ -246,12 +319,12 @@ def _market_snapshot(company: dict, settings: dict) -> dict:
             # most recent completed trading session until today's session closes.
             history = history.iloc[:-1]
         if history.empty or "Close" not in history:
-            return {**company, "market_status": "unavailable", "reason": "Yahoo Finance returned no recent price history."}
+            return {**company, "market_status": "unavailable", "checked_at": checked_at, "source_name": "Yahoo Finance via yfinance", "reason": "Yahoo Finance returned no recent price history."}
 
         valid_history = history.dropna(subset=["Close"])
         prices = valid_history["Close"]
         if len(prices) < 2:
-            return {**company, "market_status": "unavailable", "reason": "Not enough price history to calculate a daily change."}
+            return {**company, "market_status": "unavailable", "checked_at": checked_at, "source_name": "Yahoo Finance via yfinance", "reason": "Not enough price history to calculate a daily change."}
 
         last_price = float(prices.iloc[-1])
         previous_price = float(prices.iloc[-2])
@@ -268,6 +341,9 @@ def _market_snapshot(company: dict, settings: dict) -> dict:
             **company,
             "market_status": "available",
             "session_date": latest_session.isoformat(),
+            "price_updated_at": checked_at,
+            "checked_at": checked_at,
+            "source_name": "Yahoo Finance via yfinance",
             "currency": "INR",
             "price": round(last_price, 2),
             "previous_close": round(previous_price, 2),
@@ -282,7 +358,7 @@ def _market_snapshot(company: dict, settings: dict) -> dict:
             "unusual_price": bool(change_pct is not None and abs(change_pct) >= settings["price_move_pct"]),
         }
     except Exception:
-        return {**company, "market_status": "unavailable", "reason": "Yahoo Finance could not provide data for this ticker right now."}
+        return {**company, "market_status": "unavailable", "checked_at": checked_at, "source_name": "Yahoo Finance via yfinance", "reason": "Yahoo Finance could not provide data for this ticker right now."}
 
 
 def _portfolio_snapshot(force: bool = False) -> dict:
@@ -344,15 +420,14 @@ def portfolio(refresh: bool = False) -> dict:
 
 
 @app.get("/api/portfolio/history")
-def portfolio_history(tickers: str = Query(min_length=1, max_length=1000)) -> dict:
+def portfolio_history(tickers: str = Query(min_length=1, max_length=1000), period: str = Query(default="1y", pattern="^(1y|3y|5y)$"), basis: str = Query(default="adjusted", pattern="^(adjusted|raw)$")) -> dict:
     requested = list(dict.fromkeys(value.strip().upper() for value in tickers.split(",") if value.strip()))
     if not requested or len(requested) > 20:
         raise HTTPException(status_code=422, detail="Request between 1 and 20 portfolio tickers.")
-    allowed = {company["ticker"] for company in _company_universe()["companies"]}
-    if any(ticker not in allowed for ticker in requested):
-        raise HTTPException(status_code=400, detail="Historical prices are available only for tracked portfolio companies.")
+    if any(not re.fullmatch(r"[A-Z0-9&.-]{1,15}\.(?:NS|BO)", ticker) for ticker in requested):
+        raise HTTPException(status_code=400, detail="Use an Indian exchange ticker ending in .NS or .BO.")
 
-    cache_key = tuple(sorted(requested))
+    cache_key = (tuple(sorted(requested)), period, basis)
     now = datetime.now(timezone.utc).timestamp()
     with _cache_lock:
         if _history_cache["key"] == cache_key and now < _history_cache["expires_at"]:
@@ -360,9 +435,9 @@ def portfolio_history(tickers: str = Query(min_length=1, max_length=1000)) -> di
 
     def load_history(ticker: str) -> tuple[str, list[dict]]:
         try:
-            # Adjusted closes make the historical performance series comparable
-            # across splits and cash distributions; they do not change current valuation.
-            frame = yf.Ticker(ticker).history(period="1y", interval="1d", auto_adjust=True)
+            # The current-holdings chart uses adjusted closes. Transaction-ledger
+            # performance uses raw closes and the account's recorded cash dividends.
+            frame = yf.Ticker(ticker).history(period=period, interval="1d", auto_adjust=basis == "adjusted")
             if frame.empty or "Close" not in frame:
                 return ticker, []
             frame = frame[frame.index.dayofweek < 5]
@@ -375,10 +450,66 @@ def portfolio_history(tickers: str = Query(min_length=1, max_length=1000)) -> di
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         histories = dict(pool.map(load_history, requested))
-    payload = {"histories": histories, "source": "Yahoo Finance via yfinance", "retrieved_at": datetime.now(timezone.utc).isoformat()}
+    payload = {"histories": histories, "source": "Yahoo Finance via yfinance", "basis": basis, "period": period, "retrieved_at": datetime.now(timezone.utc).isoformat()}
     with _cache_lock:
         _history_cache.update({"key": cache_key, "payload": payload, "expires_at": now + 300})
     return payload
+
+
+@app.get("/api/portfolio/benchmark")
+def portfolio_benchmark(period: str = Query(default="1y", pattern="^(1y|3y|5y)$")) -> dict:
+    now = datetime.now(timezone.utc).timestamp()
+    cache_key = ("^NSEI", period)
+    with _cache_lock:
+        cached = _history_cache.get("benchmark")
+        if cached and cached.get("key") == cache_key and now < cached.get("expires_at", 0):
+            return cached["payload"]
+    try:
+        frame = yf.Ticker("^NSEI").history(period=period, interval="1d", auto_adjust=True)
+        rows = [{"date": point.date().isoformat(), "close": round(float(value), 4)} for point, value in frame["Close"].dropna().items() if float(value) > 0] if not frame.empty and "Close" in frame else []
+    except Exception as exc:
+        logger.exception("Could not load NIFTY 50 benchmark history")
+        raise HTTPException(status_code=502, detail="NIFTY 50 benchmark data is unavailable right now.") from exc
+    payload = {"ticker": "^NSEI", "name": "NIFTY 50", "period": period, "history": rows, "source": "Yahoo Finance via yfinance · adjusted closes", "retrieved_at": datetime.now(timezone.utc).isoformat()}
+    with _cache_lock:
+        _history_cache["benchmark"] = {"key": cache_key, "payload": payload, "expires_at": now + 900}
+    return payload
+
+
+@app.get("/api/portfolio/quotes")
+def portfolio_quotes(tickers: str = Query(min_length=1, max_length=1000)) -> dict:
+    requested = list(dict.fromkeys(value.strip().upper() for value in tickers.split(",") if value.strip()))
+    if not requested or len(requested) > 20 or any(not re.fullmatch(r"[A-Z0-9&.-]{1,15}\.(?:NS|BO)", ticker) for ticker in requested):
+        raise HTTPException(status_code=422, detail="Request up to 20 Indian exchange tickers ending in .NS or .BO.")
+    universe = {company["ticker"]: company for company in _company_universe()["companies"]}
+    companies = [universe.get(ticker, {"name": ticker.removesuffix(".NS").removesuffix(".BO"), "ticker": ticker, "sector": "Unclassified"}) for ticker in requested]
+    settings = _get_settings()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        values = list(pool.map(lambda company: _market_snapshot(company, settings), companies))
+    return {"companies": values, "source": "Yahoo Finance via yfinance", "retrieved_at": datetime.now(timezone.utc).isoformat()}
+
+
+@app.get("/api/portfolio/fundamentals")
+def portfolio_fundamentals(ticker: str = Query(min_length=4, max_length=20, pattern=r"^[A-Za-z0-9&.-]+\.(NS|BO)$")) -> dict:
+    normalized = ticker.upper()
+    try:
+        info = yf.Ticker(normalized).get_info()
+        keys = {
+            "market_cap": "marketCap", "trailing_pe": "trailingPE", "forward_pe": "forwardPE",
+            "price_to_book": "priceToBook", "return_on_equity": "returnOnEquity",
+            "revenue_growth": "revenueGrowth", "earnings_growth": "earningsGrowth",
+            "debt_to_equity": "debtToEquity", "dividend_yield": "dividendYield",
+            "profit_margin": "profitMargins", "sector": "sector", "industry": "industry",
+            "currency": "currency", "company_name": "longName",
+        }
+        values = {key: info.get(provider_key) for key, provider_key in keys.items()}
+        for key, value in list(values.items()):
+            if isinstance(value, float) and not math.isfinite(value):
+                values[key] = None
+        return {"ticker": normalized, "metrics": values, "source": "Yahoo Finance company profile and statistics", "retrieved_at": datetime.now(timezone.utc).isoformat(), "notice": "Provider estimates and reported ratios may be delayed or incomplete. Review primary filings before relying on a figure."}
+    except Exception as exc:
+        logger.exception("Could not load fundamentals for %s", normalized)
+        raise HTTPException(status_code=502, detail="Company fundamentals are unavailable right now.") from exc
 
 
 @app.get("/api/alerts/history")
@@ -569,6 +700,8 @@ async def replace_research_document(
     if not previous:
         raise HTTPException(status_code=404, detail="Source document not found.")
     result = await add_pdf(company, ticker, document_type, reporting_period, file)
+    matching_versions = [doc for doc in list_documents() if doc.get("company") == previous.get("company") and doc.get("ticker") == previous.get("ticker") and doc.get("document_type") == previous.get("document_type") and doc.get("reporting_period") == previous.get("reporting_period")]
+    next_version = max((int(doc.get("version_number", 1)) for doc in matching_versions), default=1) + 1
     if source_url:
         from app.services.research.documents import _manifest, _manifest_lock, MANIFEST_PATH
         with _manifest_lock:
@@ -581,6 +714,7 @@ async def replace_research_document(
                 if record.get("id") == result["id"]:
                     record["source_url"] = source_url
                     record["replaces"] = document_id
+                    record["version_number"] = next_version
                     break
             MANIFEST_PATH.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
         result["source_url"] = source_url
@@ -593,7 +727,9 @@ async def replace_research_document(
                     record["superseded_by"] = result["id"]
                 elif record.get("id") == result["id"]:
                     record["replaces"] = document_id
+                    record["version_number"] = next_version
             MANIFEST_PATH.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    result["version_number"] = next_version
     return result
 
 
@@ -602,6 +738,13 @@ def delete_research_document(document_id: str) -> dict:
     record = remove_document(document_id)
     remove_document_records(document_id)
     return {"deleted": record["id"], "filename": record["filename"]}
+
+
+@app.get("/api/research/documents/{document_id}/dependencies")
+def research_document_dependencies(document_id: str) -> dict:
+    if not any(doc["id"] == document_id for doc in list_documents()):
+        raise HTTPException(status_code=404, detail="Source document not found.")
+    return document_dependencies(document_id)
 
 
 @app.post("/api/research/documents/{document_id}/reindex")
@@ -622,7 +765,10 @@ def open_research_document(document_id: str) -> FileResponse:
 
 @app.post("/api/research/query")
 def research_query(query: ResearchQuestion) -> dict:
-    document, sources = retrieve_pages(query.document_id, query.question)
+    if query.ticker:
+        document, sources = retrieve_ticker_pages(query.ticker, query.question)
+    else:
+        document, sources = retrieve_pages(query.document_id or "", query.question)
     if not sources:
         return {"answer": "I could not find a matching passage in this document. Try a more specific question or upload a text-searchable primary source.", "mode": "no_matching_evidence", "sources": [], "ai_generated": False}
 
@@ -690,8 +836,8 @@ def research_query(query: ResearchQuestion) -> dict:
     valid_ids = {source["id"] for source in sources}
     cited_ids = set(re.findall(r"\[(S\d+)\]", answer))
     unknown_ids = sorted(cited_ids - valid_ids)
-    uncited_lines = _uncited_claim_lines(answer, r"\[S\d+\]")
-    if unknown_ids or not (cited_ids & valid_ids) or uncited_lines:
+    verification = _verify_generated_claims(answer, sources, "S")
+    if unknown_ids or not (cited_ids & valid_ids) or verification["status"] == "withheld":
         answer = "FINN could not verify citations in its generated response, so it is withholding the synthesis. Review the retrieved primary-source passages below."
         return {
             "answer": answer,
@@ -699,7 +845,7 @@ def research_query(query: ResearchQuestion) -> dict:
             "sources": sources,
             "cited_source_ids": [],
             "unknown_citation_ids": unknown_ids,
-            "uncited_claim_lines": uncited_lines[:5],
+            "verification": verification,
             "ai_generated": False,
             "document": {"company": document["company"], "ticker": document["ticker"], "filename": document["filename"]},
         }
@@ -709,6 +855,7 @@ def research_query(query: ResearchQuestion) -> dict:
         "sources": sources,
         "cited_source_ids": sorted(cited_ids & valid_ids),
         "unknown_citation_ids": unknown_ids,
+        "verification": verification,
         "ai_generated": True,
         "document": {"company": document["company"], "ticker": document["ticker"], "filename": document["filename"]},
     }
@@ -717,6 +864,11 @@ def research_query(query: ResearchQuestion) -> dict:
 @app.get("/api/research/financials")
 def research_financials(ticker: str = Query(min_length=1, max_length=32), statement_basis: str = Query(default="consolidated", pattern="^(consolidated|standalone)$"), figure_type: str = Query(default="reported", pattern="^(reported|adjusted)$"), adjustment_note: str = Query(default="", max_length=500)) -> dict:
     return quarterly_comparisons(ticker, statement_basis, figure_type, adjustment_note)
+
+
+@app.get("/api/research/evidence")
+def research_evidence(ticker: str = Query(min_length=1, max_length=32)) -> dict:
+    return {"ticker": ticker.upper(), "records": list_financial_evidence(ticker)}
 
 
 @app.post("/api/research/financials")
@@ -731,10 +883,10 @@ def add_research_financials(entry: QuarterlyEntry) -> dict:
 @app.get("/api/research/promises")
 def research_promises(ticker: str = Query(min_length=1, max_length=32)) -> dict:
     promises = list_promises(ticker)
-    completed = [item for item in promises if item.get("is_current_guidance") and item.get("actual_value") is not None and item.get("status") != "unit_mismatch"]
-    achieved = sum(item.get("status") in {"met", "above_guidance"} for item in completed)
+    completed = [item for item in promises if item.get("is_current_guidance") and item.get("status") in {"achieved", "exceeded", "missed"}]
+    achieved = sum(item.get("status") in {"achieved", "exceeded"} for item in completed)
     miss_rates = [abs(item["deviation"]) / abs(item["target_value"]) * 100 for item in completed if item.get("deviation") is not None and abs(float(item.get("target_value", 0))) > 1e-9]
-    track_record = {"completed_count": len(completed), "achieved_count": achieved, "missed_count": sum(item.get("status") == "below_guidance" for item in completed), "achievement_rate_pct": round(achieved / len(completed) * 100, 1) if len(completed) >= 3 else None, "mean_absolute_deviation_pct": round(sum(miss_rates) / len(miss_rates), 1) if len(miss_rates) >= 3 else None, "minimum_sample": 3, "note": "Historical outcomes describe this small sample; they are not a predictive management credibility score."}
+    track_record = {"completed_count": len(completed), "achieved_count": achieved, "missed_count": sum(item.get("status") == "missed" for item in completed), "achievement_rate_pct": round(achieved / len(completed) * 100, 1) if len(completed) >= 3 else None, "mean_absolute_deviation_pct": round(sum(miss_rates) / len(miss_rates), 1) if len(miss_rates) >= 3 else None, "minimum_sample": 3, "note": "Achieved includes outcomes within 1% of guidance; exceeded is above that tolerance. Missing or incomparable data is excluded. This small sample is not a predictive management credibility score."}
     return {"ticker": ticker.upper(), "promises": promises, "track_record": track_record}
 
 
@@ -784,6 +936,8 @@ def _local_financial_signals(ticker: str, sources: list[dict]) -> tuple[list[str
             sources.append({
                 "id": source_id,
                 "filename": source.get("filename", "Source PDF"),
+                "document_id": source.get("document_id"),
+                "source_url": source.get("source_url"),
                 "document_type": source.get("document_type", "Quarterly results"),
                 "reporting_period": source.get("reporting_period", latest["period"]),
                 "page": source.get("page", 1),
@@ -826,7 +980,27 @@ def _research_evidence_quality(sources: list[dict]) -> dict:
     else:
         coverage = "limited"
         confidence = "low"
-    return {"coverage": coverage, "confidence": confidence, "source_pages": page_count, "documents": document_count, "document_types": document_types, "note": "Confidence describes retrieved evidence coverage, not the likelihood of any investment outcome."}
+    families = {urlparse(item.get("source_url", "")).hostname.lower().removeprefix("www.") for item in sources if item.get("source_url") and urlparse(item.get("source_url", "")).hostname}
+    excerpt_terms = []
+    for item in sources:
+        excerpt_terms.append({term.lower().rstrip("s") for term in WORD_RE.findall(item.get("excerpt", "")) if len(term) > 2})
+    repeated_pairs = 0
+    compared_pairs = 0
+    for index, left in enumerate(excerpt_terms):
+        for right in excerpt_terms[index + 1:]:
+            if not left or not right:
+                continue
+            compared_pairs += 1
+            similarity = len(left & right) / max(len(left | right), 1)
+            if similarity >= 0.55:
+                repeated_pairs += 1
+    if repeated_pairs:
+        quality, independence = "repeated evidence needs review", "possible content overlap"
+    elif len(families) >= 2:
+        quality, independence = "source variety visible", "multiple source domains"
+    else:
+        quality, independence = "independence unassessed", "source domains are missing or concentrated"
+    return {"coverage": coverage, "confidence": confidence, "quality": quality, "independence": independence, "source_domains": len(families), "near_duplicate_passage_pairs": repeated_pairs, "compared_passage_pairs": compared_pairs, "source_pages": page_count, "documents": document_count, "document_types": document_types, "note": "Coverage counts retrieved material. Quality signals only identify source-domain variety and text overlap; repeated filings are not independent corroboration. Confidence describes retrieval coverage, not the likelihood of an investment outcome."}
 
 
 @app.post("/api/research/bull-bear")
@@ -866,6 +1040,18 @@ def bull_bear_analysis(request: BullBearRequest) -> dict:
     for index, passage in enumerate(passages, start=1):
         source = {**passage, "id": f"B{index}", "case_sides": sorted(passage["case_sides"])}
         sources.append(source)
+    # Attach saved financial figures and management guidance to the same cited
+    # source set used by Bull vs Bear, preserving each record's original page.
+    for record in list_financial_evidence(ticker)[:12]:
+        citation = record.get("source") or {}
+        if not citation.get("document_id") or not citation.get("page"):
+            continue
+        entry_id = f"B{len(sources) + 1}"
+        if record.get("evidence_kind") == "management_guidance":
+            description = f"Management guidance for {record.get('target_period')}: {record.get('metric')} target {record.get('target_value')} {record.get('unit')}. Management quote: {record.get('quote', '')}"
+        else:
+            description = f"Saved financial evidence for {record.get('period')}: {record.get('metric')} = {record.get('value')} {record.get('unit')} ({record.get('statement_basis', 'consolidated')}, {record.get('figure_type', 'reported')})."
+        sources.append({"id": entry_id, "document_id": citation["document_id"], "source_url": citation.get("source_url"), "filename": citation.get("filename", "Source PDF"), "document_type": citation.get("document_type", "Financial evidence"), "reporting_period": record.get("period") or record.get("target_period") or citation.get("reporting_period", ""), "page": citation["page"], "relevance": 0, "excerpt": description + "\n" + (citation.get("excerpt") or record.get("quote", "")), "evidence_kind": record.get("evidence_kind", "financial_value")})
     if not ai_is_enabled():
         positives, counterpoints = _local_financial_signals(ticker, sources)
         bull_sources = [item for item in sources if "bull" in item.get("case_sides", [])]
@@ -902,7 +1088,7 @@ def bull_bear_analysis(request: BullBearRequest) -> dict:
         else:
             lines.append("Evidence is insufficient for a directional conclusion.")
         lines.extend(["", "Assumptions and valuation", "No valuation conclusion is available from the uploaded operational and financial passages alone. Check whether reported periods, units, and statement basis are comparable.", "", "Catalysts and unresolved questions", "No future catalyst is assumed unless a source passage explicitly states one. Review the cited pages for timing, execution, funding, and unresolved risks.", "", f"Evidence quality: limited · {len(sources)} retrieved source pages; topic search and entered figures only. This scan may miss relevant disclosures."])
-        return {"ticker": ticker, "mode": "local_analysis", "answer": "\n".join(lines), "sources": sources, "evidence_quality": _research_evidence_quality(sources), "ai_generated": False}
+        return {"ticker": ticker, "mode": "local_analysis", "answer": "\n".join(lines), "sources": sources, "evidence_quality": _research_evidence_quality(sources), "verification": {"status": "deterministic", "failures": [], "note": "Local calculations and source-topic matches; review citations and source text."}, "ai_generated": False}
 
     evidence = "\n\n".join(f"[{source['id']}] {source['filename']}, {source['document_type']}, {source['reporting_period']}, page {source['page']}\n{source['excerpt']}" for source in sources)
     instructions = (
@@ -920,10 +1106,10 @@ def bull_bear_analysis(request: BullBearRequest) -> dict:
     import re
     valid_ids = {source["id"] for source in sources}
     cited_ids = set(re.findall(r"\[(B\d+)\]", answer))
-    uncited_lines = _uncited_claim_lines(answer, r"\[B\d+\]")
-    if not cited_ids or cited_ids - valid_ids or uncited_lines:
-        return {"ticker": ticker, "mode": "evidence_only", "answer": "FINN could not verify the generated citations, so it is withholding the synthesis. Review the retrieved primary-source pages below.", "sources": sources, "evidence_quality": _research_evidence_quality(sources), "ai_generated": False}
-    return {"ticker": ticker, "mode": "ai_grounded", "answer": answer, "sources": sources, "evidence_quality": _research_evidence_quality(sources), "cited_source_ids": sorted(cited_ids), "ai_generated": True}
+    verification = _verify_generated_claims(answer, sources, "B")
+    if not cited_ids or cited_ids - valid_ids or verification["status"] == "withheld":
+        return {"ticker": ticker, "mode": "evidence_only", "answer": "FINN could not verify the generated citations, so it is withholding the synthesis. Review the retrieved primary-source pages below.", "sources": sources, "evidence_quality": _research_evidence_quality(sources), "verification": verification, "ai_generated": False}
+    return {"ticker": ticker, "mode": "ai_grounded", "answer": answer, "sources": sources, "evidence_quality": _research_evidence_quality(sources), "verification": verification, "cited_source_ids": sorted(cited_ids), "ai_generated": True}
 
 WEB_DIST = ROOT / "frontend" / "dist"
 if WEB_DIST.is_dir():
