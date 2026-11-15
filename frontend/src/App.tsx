@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, Bell, BriefcaseBusiness, FileSearch, FileText, LayoutDashboard, RefreshCw, Search, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp, Upload, Trash2, RotateCw } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, Bell, BriefcaseBusiness, CalendarDays, FileSearch, FileText, LayoutDashboard, RefreshCw, Search, ShieldCheck, Sparkles, Target, TrendingDown, TrendingUp, Upload, Trash2, RotateCw } from 'lucide-react'
 import { buildAccountHistory, calculateReturnCorrelations, deriveLedger, evaluateWatchlistAlert, loadPortfolioTransactions, positionAtDate, type LedgerPosition, type PortfolioTransaction, type TransactionKind } from './portfolioLedger'
-import { askResearchQuestion, compareResearchCompanies as compareResearchCompaniesApi, explainAnnouncement as explainAnnouncementApi, explainMarketSignal as explainMarketSignalApi, requestDailyBriefing, requestPortfolioIntelligence, getResearchDocumentDependencies, getResearchDocuments, type CitationFailure, type ExplanationResponse, type IntelligenceResponse, type MarketSignalExplanation, type PortfolioIntelligenceInput, type ResearchComparisonResponse, type ResearchQueryResponse, type ResearchQueryScope } from './services/aiApi'
+import { askResearchQuestion, compareResearchCompanies as compareResearchCompaniesApi, explainAnnouncement as explainAnnouncementApi, explainMarketSignal as explainMarketSignalApi, getDailyBriefing, requestDailyBriefing, requestPortfolioIntelligence, getResearchDocumentDependencies, getResearchDocuments, type BriefingDevelopment, type CitationFailure, type ExplanationResponse, type IntelligenceResponse, type MarketSignalExplanation, type PortfolioIntelligenceInput, type ResearchComparisonResponse, type ResearchQueryResponse, type ResearchQueryScope } from './services/aiApi'
 import { AIConversation, type AIConversationExchange } from './components/ai/AIConversation'
 import { IntelligenceAnswer } from './components/ai/IntelligenceAnswer'
 import { SourceDiscovery } from './components/research/SourceDiscovery'
@@ -10,6 +10,7 @@ type Company = { name: string; ticker: string; sector: string; market_status: 'a
 type Portfolio = { source: string; retrieved_at: string; last_successful_update?: string | null; notice: string; companies: Company[]; available_count: number; alert_count: number; alerts: (Company & { alert_types?: string[] })[]; settings: { volume_multiple: number; price_move_pct: number } }
 type Announcement = { id: string; company: string; ticker: string; subject: string; details: string; filed_at: string; source_url: string; source_name?: string; exchange?: string; category: string; importance: number; priority: string; rule_explanation: string; is_verified_example?: boolean }
 type AlertHistoryItem = { id: string; kind: 'filing' | 'market'; ticker: string; company: string; subject?: string; details?: string; filed_at?: string; event_at: string; session_date?: string; source_url: string; source_name?: string; exchange?: string; category: string; signal_type?: string; importance: number; priority: string; rule_explanation?: string; change_pct?: number | null; price_threshold_pct?: number | null; previous_close?: number | null; volume_ratio_20d?: number | null; volume_threshold?: number | null; volume?: number | null; average_volume_20d?: number | null; price?: number | null; is_verified_example?: boolean; is_read: boolean }
+type AlertSummary = { window_hours: number; total: number; unread: number; high_priority: number; filings: number; price_movements: number; volume_spikes: number; trend_7d_ist: {date:string;count:number}[]; category_counts: Record<string,number>; computed_at: string; coverage?: {market_source?:string|null;last_successful_market_update?:string|null;latest_completed_session?:string|null;market_companies_available?:number;market_companies_total?:number|null;market_status?:string} }
 type AlertView = 'all' | 'filings' | 'price' | 'volume'
 type FilingFilter = 'all' | 'results' | 'corporate' | 'shareholding' | 'dividend' | 'board' | 'mergers'
 type ResearchSource = ResearchQueryResponse['sources'][number]
@@ -50,6 +51,7 @@ const money = (value: number | null | undefined) => value === null || value === 
 const signedMoney = (value: number) => `${value > 0 ? '+' : ''}${money(value)}`
 const tickerKey = (ticker: string) => ticker.toUpperCase().replace(/\.(NS|BO)$/, '')
 const shortDate = (date?: string | null) => date ? new Date(`${date.slice(0,10)}T12:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'date unavailable'
+const briefingChangeLabel = (change?: { status: string; change_pct: number | null }) => change?.change_pct !== null && change?.change_pct !== undefined && ['available','negative_base'].includes(change.status) ? `${change.change_pct > 0 ? '+' : ''}${change.change_pct.toFixed(1)}%` : ({ missing_data: 'Missing', unit_mismatch: 'Unit mismatch', zero_base: 'Undefined · zero base', negative_revenue: 'Not comparable', non_positive_base: 'Not comparable' }[change?.status ?? ''] ?? 'Unavailable')
 const changeValue = (change: FinancialChange) => ['available','negative_base'].includes(change.status) && change.change_pct !== null ? `${change.change_pct > 0 ? '+' : ''}${change.change_pct.toFixed(2)}${change.delta_type==='percentage_points'?' pp':'%'}` : ({ missing_data: 'Data missing', unit_mismatch: 'Unit mismatch', zero_base: 'Undefined · zero base', negative_revenue: 'Not comparable', non_positive_base: 'Not comparable', negative_base: 'Not calculated', available: 'Not calculated' }[change.status])
 const changeNote = (change: FinancialChange, currentUnit: string) => change.status === 'missing_data' ? `${change.period} has not been entered` : change.status === 'unit_mismatch' ? `${change.period} · ${change.unit ?? 'unknown unit'} vs ${currentUnit}` : change.status === 'zero_base' ? `${change.period} · percentage undefined for zero base` : change.status === 'negative_base' ? `${change.period} · change relative to absolute prior value` : change.status === 'negative_revenue' ? `${change.period} · margin is not comparable against negative revenue` : change.period
 const promiseStatusLabel = (status: string) => ({ achieved: 'achieved', exceeded: 'exceeded', missed: 'missed', pending: 'pending period', actual_missing: 'actual not entered', not_comparable: 'not comparable' }[status] ?? status.replaceAll('_',' '))
@@ -57,15 +59,64 @@ const citationFailureLabel = (type: CitationFailure['type']) => ({ missing_sourc
 const returnFor = (rows: PricePoint[], points: number) => rows.length >= points ? (rows.at(-1)!.close / rows.at(-points)!.close - 1) * 100 : null
 const staleSession = (date?: string) => !date || (Date.now() - Date.parse(`${date}T00:00:00Z`)) / 86400000 > 5
 
+function BriefingSparkline({ points, ticker, throughDate }: { points: PricePoint[]; ticker: string; throughDate?: string }) {
+  const rows = points.filter(point => Number.isFinite(point.close) && (!throughDate || point.date.slice(0,10) <= throughDate.slice(0,10))).slice(-20)
+  if (rows.length < 2) return null
+  const values = rows.map(point => point.close)
+  const low = Math.min(...values), high = Math.max(...values), span = high - low || 1
+  const coordinates = values.map((value,index) => `${(index/(values.length-1))*68},${27-((value-low)/span)*22}`)
+  const path = coordinates.map((point,index) => `${index?'L':'M'}${point}`).join(' ')
+  const direction = values.at(-1)! >= values[0] ? 'up' : 'down'
+  return <svg className={`briefing-sparkline ${direction}`} viewBox="0 0 68 32" role="img" aria-label={`${ticker} Yahoo Finance adjusted daily closing-price trend from ${rows[0].date} to ${rows.at(-1)!.date}`}><path d={path}/></svg>
+}
+
+function HomeBriefingVisual({ result, histories }: { result: IntelligenceResponse; histories: PriceHistory }) {
+  const items = result.developments ?? []
+  const sources = result.sources ?? []
+  const session = result.coverage?.latest_market_session
+  const dateValue = typeof session === 'string' ? session : result.generated_at
+  const dateLabel = dateValue ? new Date(`${dateValue.slice(0,10)}T12:00:00`).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}) : 'Reporting date unavailable'
+  const sourceFor = (item: BriefingDevelopment) => sources.find(source => source.id === item.source_id) ?? sources.find(source => source.label.toLowerCase().includes(item.company.toLowerCase()) && (!item.session_date || source.source_date?.slice(0,10) === item.session_date.slice(0,10)))
+  const historyFor = (ticker: string) => Object.entries(histories).find(([key]) => tickerKey(key) === tickerKey(ticker))?.[1] ?? []
+
+  return <section className="home-briefing-visual" aria-labelledby="home-briefing-visual-title">
+    <header className="home-briefing-visual-heading"><div><span className="eyebrow-mini">PUSH INTELLIGENCE · FINN INTERPRETATION</span><h3 id="home-briefing-visual-title">Tracked-company developments — {dateLabel}</h3><p>Key market triggers, interpretation, checks and supporting evidence for this reporting window.</p></div><span className="briefing-date-badge"><CalendarDays size={13}/>{dateLabel}</span></header>
+    {items.length ? <div className="home-briefing-signal-grid">{items.map(item=>{
+      const market = item.kind === 'market'
+      const source = sourceFor(item)
+      const triggers = market ? (item.signal_types?.length ? item.signal_types : [item.category]).map(labelCategory).join(' + ') : labelCategory(item.category)
+      const history = market ? historyFor(item.ticker) : []
+      const hasAlignedHistory = history.filter(point => Number.isFinite(point.close) && (!item.session_date || point.date.slice(0,10) <= item.session_date.slice(0,10))).length > 1
+      const price = item.price_change_pct
+      const priceText = price == null ? 'Unavailable' : `${price > 0 ? '+' : ''}${price.toFixed(2)}%`
+      return <article className={`home-briefing-signal-card ${item.priority==='high'?'is-high':''}`} key={item.id}>
+        <div className="briefing-signal-main"><div className="briefing-signal-identity"><span className="briefing-signal-monogram" aria-hidden="true">{item.company.split(/\s+/).map(part=>part[0]).join('').slice(0,2).toUpperCase()}</span><div><b>{item.company}</b><small>{item.ticker}</small></div></div><span className={`briefing-trigger-badge ${market?'market-trigger':'filing-trigger'}`}>{triggers}</span>
+          <p>{market ? <>{item.volume_ratio_20d != null && <>Volume was <b>{item.volume_ratio_20d.toFixed(2)}×</b> the 20-session average{item.volume_threshold != null && <>; above the <b>{item.volume_threshold.toFixed(2)}×</b> trigger</>}. </>}{price != null && <>Close moved <b className={price < 0?'signal-negative':'signal-positive'}>{priceText}</b> vs previous close{item.price_threshold_pct != null && <>; {Math.abs(price) >= item.price_threshold_pct ? 'crossing' : 'below'} the configured ±{item.price_threshold_pct.toFixed(2)}% threshold</>}.</>}{item.volume_ratio_20d == null && price == null && item.summary}</> : item.summary}</p>
+          {item.why_it_may_matter&&<div className="briefing-signal-why"><b>Why it may matter</b><span>{item.why_it_may_matter}</span></div>}
+          <div className="briefing-signal-footer"><span className={`briefing-priority-tag ${item.priority}`}>{labelCategory(item.priority)} priority</span>{source&&(source.source_url?<a href={source.source_url} target="_blank" rel="noreferrer" className="briefing-citation-chip" title={source.label}>[{source.id}]</a>:<span className="briefing-citation-chip" title={source.label}>[{source.id}]</span>)}</div>
+        </div>
+        <div className="briefing-signal-visual">{market&&hasAlignedHistory?<BriefingSparkline points={history} ticker={item.ticker} throughDate={item.session_date}/>:market&&price!=null?<span className={`briefing-price-metric ${price<0?'signal-negative':'signal-positive'}`}>{priceText}</span>:market?<span className="briefing-no-series">No price history</span>:null}{market&&price!=null&&<small>vs previous close</small>}{market&&item.volume_ratio_20d!=null&&<strong>Vol {item.volume_ratio_20d.toFixed(2)}×</strong>}</div>
+        {item.details&&<details className="briefing-signal-details"><summary>Filing details</summary><p>{item.details}</p></details>}
+      </article>
+    })}</div> : <div className="home-briefing-visual-empty"><b>No material developments in this report.</b><span>{result.answer}</span></div>}
+    {Boolean(result.uncertainties?.length)&&<section className="home-briefing-coverage"><b><ShieldCheck size={14}/> Uncertainty and coverage</b><ul>{result.uncertainties?.map((item,index)=><li key={index}>{item}</li>)}</ul></section>}
+    {sources.length>0&&<section className="home-briefing-evidence"><header><b><FileText size={14}/> Evidence ({sources.length})</b></header><div>{sources.map(source=><details key={source.id}><summary><span>[{source.id}]</span>{source.label}{source.source_date?` · ${shortDate(source.source_date)}`:''}</summary><p>{source.excerpt}</p>{source.source_url&&<a href={source.source_url} target="_blank" rel="noreferrer">Open source ↗</a>}</details>)}</div></section>}
+    <details className="home-briefing-full-analysis"><summary>View full FINN interpretation and verification</summary><IntelligenceAnswer result={result}/></details>
+  </section>
+}
+
 function App() {
   const [active, setActive] = useState(pageFromUrl)
   const [alertsTab, setAlertsTab] = useState<AlertView>('all')
   const [filingFilter, setFilingFilter] = useState<FilingFilter>('all')
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [researchTab, setResearchTab] = useState<'ask' | 'financials' | 'commitments' | 'analysis' | 'sources'>('ask')
+  const [researchPathDialogOpen, setResearchPathDialogOpen] = useState(false)
   const [researchCompanyTicker, setResearchCompanyTicker] = useState('')
   const [researchCompanySearch, setResearchCompanySearch] = useState('')
   const [researchCompanyPickerOpen, setResearchCompanyPickerOpen] = useState(false)
+  const [discoverySearch, setDiscoverySearch] = useState('')
+  const [recentResearchTickers, setRecentResearchTickers] = useState<string[]>(() => { try { const value=JSON.parse(localStorage.getItem('finn-recent-research-v1')||'[]'); return Array.isArray(value)?value.filter((item):item is string=>typeof item==='string').slice(0,6):[] } catch { return [] } })
   const [portfolioTab, setPortfolioTab] = useState<'holdings' | 'watchlist' | 'activity'>('holdings')
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null)
   const [priceHistory, setPriceHistory] = useState<PriceHistory>({})
@@ -102,6 +153,9 @@ function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [alertHistory, setAlertHistory] = useState<AlertHistoryItem[]>([])
+  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null)
+  const [alertUnreadCount, setAlertUnreadCount] = useState(0)
+  const alertHistoryRequestId = useRef(0)
   const [alertHistoryLoading, setAlertHistoryLoading] = useState(false)
   const [alertHistoryError, setAlertHistoryError] = useState('')
   const [announcementError, setAnnouncementError] = useState('')
@@ -116,6 +170,9 @@ function App() {
   const [dailyBriefing, setDailyBriefing] = useState<IntelligenceResponse | null>(null)
   const [dailyBriefingBusy, setDailyBriefingBusy] = useState(false)
   const [dailyBriefingError, setDailyBriefingError] = useState('')
+  const [briefingWindow, setBriefingWindow] = useState(24)
+  const [briefingLoading, setBriefingLoading] = useState(false)
+  const [routineDevelopmentsOpen, setRoutineDevelopmentsOpen] = useState(false)
   const [portfolioIntelligence, setPortfolioIntelligence] = useState<IntelligenceResponse | null>(null)
   const [portfolioIntelligenceBusy, setPortfolioIntelligenceBusy] = useState(false)
   const [portfolioIntelligenceError, setPortfolioIntelligenceError] = useState('')
@@ -126,6 +183,8 @@ function App() {
   const [settings, setSettings] = useState({ volume_multiple: 1.3, price_move_pct: 4 })
   const [settingsMessage, setSettingsMessage] = useState('')
   const [documents, setDocuments] = useState<ResearchDocument[]>([])
+  const [researchDocumentsLoaded, setResearchDocumentsLoaded] = useState(false)
+  const [researchDocumentsError, setResearchDocumentsError] = useState('')
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiProvider, setAiProvider] = useState('Local retrieval')
   const [documentId, setDocumentId] = useState('')
@@ -157,6 +216,8 @@ function App() {
   const [financialEntryPeriod, setFinancialEntryPeriod] = useState('')
   const [financialPeriods, setFinancialPeriods] = useState<FinancialComparison[]>([])
   const [financialEvidence, setFinancialEvidence] = useState<FinancialEvidenceRecord[]>([])
+  const [researchDatasetLoading, setResearchDatasetLoading] = useState({ financials: false, evidence: false, commitments: false })
+  const [researchDatasetErrors, setResearchDatasetErrors] = useState({ financials: '', evidence: '', commitments: '' })
   const [financialMessage, setFinancialMessage] = useState('')
   const [promiseRows, setPromiseRows] = useState<PromiseComparison[]>([])
   const [promiseTrackRecord, setPromiseTrackRecord] = useState<PromiseTrackRecord | null>(null)
@@ -269,26 +330,29 @@ function App() {
       if (!response.ok) throw new Error(payload.detail || 'The NSE announcement feed is unavailable.')
       setAnnouncements(payload.items)
       setAnnouncementUpdatedAt(payload.last_successful_update ?? '')
-      void loadAlertHistory(windowHours)
     } catch (error) {
       setAnnouncementError(error instanceof Error ? error.message : 'NSE announcement feed unavailable.')
       setAnnouncementUpdatedAt('')
       setAnnouncements([])
-      void loadAlertHistory(windowHours)
     }
   }
 
   async function loadAlertHistory(windowHours = 720) {
+    const requestId = ++alertHistoryRequestId.current
     setAlertHistoryError('')
     setAlertHistoryLoading(true)
     try {
       const response = await fetch(`${API}/api/alerts/history?window_hours=${windowHours}`)
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || 'Alert history is unavailable.')
+      if (requestId !== alertHistoryRequestId.current) return
       setAlertHistory(Array.isArray(payload.alerts) ? payload.alerts : [])
+      if (payload.summary) setAlertSummary(payload.summary as AlertSummary)
+      if (Number.isFinite(payload.all_unread_count)) setAlertUnreadCount(payload.all_unread_count)
     } catch (error) {
+      if (requestId !== alertHistoryRequestId.current) return
       setAlertHistoryError(error instanceof Error ? error.message : 'Alert history is unavailable.')
-    } finally { setAlertHistoryLoading(false) }
+    } finally { if (requestId === alertHistoryRequestId.current) setAlertHistoryLoading(false) }
   }
 
   async function setAlertRead(item: AlertHistoryItem, isRead: boolean) {
@@ -297,20 +361,28 @@ function App() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.detail || 'Could not update this alert.')
       setAlertHistory(current => current.map(alert => alert.id === item.id ? { ...alert, is_read: isRead } : alert))
+      setAlertUnreadCount(current => Math.max(0, current + (isRead ? -1 : 1)))
     } catch (error) {
       setAlertHistoryError(error instanceof Error ? error.message : 'Could not update this alert.')
     }
   }
 
   async function loadDocuments(preferredId = ''): Promise<ResearchDocument[]> {
-    const payload = await getResearchDocuments()
-    const loaded: ResearchDocument[] = Array.isArray(payload.documents) ? payload.documents : []
-    setDocuments(loaded)
-    setAiEnabled(Boolean(payload.ai_enabled))
-    setAiProvider(payload.ai_provider ?? 'Local retrieval')
-    const activeDocuments = loaded.filter(doc => !doc.superseded_by)
-    setDocumentId(current => preferredId && loaded.some(doc => doc.id === preferredId) ? preferredId : current && loaded.some(doc => doc.id === current) ? current : activeDocuments[0]?.id ?? loaded[0]?.id ?? '')
-    return loaded
+    setResearchDocumentsError('')
+    try {
+      const payload = await getResearchDocuments()
+      const loaded: ResearchDocument[] = Array.isArray(payload.documents) ? payload.documents : []
+      setDocuments(loaded)
+      setAiEnabled(Boolean(payload.ai_enabled))
+      setAiProvider(payload.ai_provider ?? 'Local retrieval')
+      setResearchDocumentsLoaded(true)
+      setDocumentId(current => preferredId && loaded.some(doc => doc.id === preferredId) ? preferredId : current && loaded.some(doc => doc.id === current) ? current : '')
+      return loaded
+    } catch (error) {
+      setResearchDocumentsError(error instanceof Error ? error.message : 'Research service is unavailable.')
+      setResearchDocumentsLoaded(true)
+      throw error
+    }
   }
 
   useEffect(() => {
@@ -359,32 +431,31 @@ function App() {
     allCompanies.forEach(company => { if (!byTicker.has(tickerKey(company.ticker))) byTicker.set(tickerKey(company.ticker), { ticker: company.ticker, name: company.name, sector: company.sector }) })
     return [...byTicker.values()].sort((a,b) => a.name.localeCompare(b.name))
   }, [documents, allCompanies])
-  const currentResearchTicker = researchCompanyTicker || documents.find(doc => doc.id === documentId)?.ticker || researchCompanyChoices[0]?.ticker || ''
+  const researchPathCompanies = researchCompanyChoices.filter(company => portfolio?.companies.some(item => tickerKey(item.ticker) === tickerKey(company.ticker)) || documents.some(doc => !doc.superseded_by && tickerKey(doc.ticker) === tickerKey(company.ticker)))
+  const researchPathCompanyMatches = researchPathCompanies.filter(company => !researchCompanySearch.trim() || `${company.name} ${company.ticker} ${company.sector ?? ''}`.toLowerCase().includes(researchCompanySearch.trim().toLowerCase()))
+  const currentResearchTicker = researchCompanyTicker || documents.find(doc => doc.id === documentId)?.ticker || ''
   const currentResearchCompany = researchCompanyChoices.find(company => tickerKey(company.ticker) === tickerKey(currentResearchTicker))
   const currentResearchDocuments = documents.filter(doc => tickerKey(doc.ticker) === tickerKey(currentResearchTicker) && !doc.superseded_by)
   const researchCompanyMatches = researchCompanySearch.trim() ? researchCompanyChoices.filter(company => `${company.name} ${company.ticker} ${company.sector ?? ''}`.toLowerCase().includes(researchCompanySearch.trim().toLowerCase())).slice(0,8) : []
-  const researchDevelopments = useMemo(() => {
-    if (!currentResearchTicker) return []
-    const rows = [
-      ...alertHistory.filter(item => tickerKey(item.ticker) === tickerKey(currentResearchTicker)).map(item => ({ id: item.id, title: item.kind === 'filing' ? item.subject ?? 'Company filing' : item.signal_type === 'price_movement' ? 'Price movement' : 'Volume spike', detail: item.kind === 'filing' ? item.details : item.rule_explanation ?? '', date: item.filed_at ?? item.session_date ?? item.event_at, href: item.source_url, kind: item.kind === 'filing' ? 'Filing' : 'Market signal' })),
-      ...announcements.filter(item => tickerKey(item.ticker) === tickerKey(currentResearchTicker)).map(item => ({ id: item.id, title: item.subject, detail: item.details, date: item.filed_at, href: item.source_url, kind: 'Filing' })),
-    ].sort((a,b) => Date.parse(b.date) - Date.parse(a.date))
-    const unique = new Map<string, typeof rows[number]>()
-    rows.forEach(item => unique.set(`${item.title}|${item.date.slice(0,10)}`, item))
-    return [...unique.values()].slice(0,3)
-  }, [currentResearchTicker, alertHistory, announcements])
-  const suggestedResearchQuestions = useMemo(() => {
-    const types = currentResearchDocuments.map(doc => doc.document_type.toLowerCase())
-    const questions: string[] = []
-    if (types.some(type => /transcript|concall|call/.test(type))) questions.push('What did management say about margins and growth?')
-    if (types.some(type => /quarter|result/.test(type))) questions.push('What changed in the latest reported quarter?')
-    if (types.some(type => /annual/.test(type))) questions.push('Which principal risks does the annual report disclose?')
-    return questions
-  }, [currentResearchDocuments])
+  const discoveryCompanyMatches = discoverySearch.trim() ? researchCompanyChoices.filter(company => `${company.name} ${company.ticker} ${company.sector ?? ''}`.toLowerCase().includes(discoverySearch.trim().toLowerCase())).slice(0,6) : []
+  const featuredResearchCompanies = researchCompanyChoices.slice(0,4)
+  const recentResearchCompanies = recentResearchTickers.map(ticker => researchCompanyChoices.find(company => tickerKey(company.ticker) === tickerKey(ticker))).filter((company): company is NonNullable<typeof company> => Boolean(company)).slice(0,4)
   const trackedCompanies = useMemo(() => {
     const tickers = trackedTickers ?? portfolio?.companies.map(company=>company.ticker) ?? []
     return allCompanies.filter(company=>tickers.includes(company.ticker))
   }, [allCompanies, trackedTickers, portfolio])
+  useEffect(() => {
+    if (trackedTickers === null || !trackedCompanies.length) { setDailyBriefing(null); return }
+    let current = true
+    setBriefingLoading(true)
+    setDailyBriefing(null)
+    setDailyBriefingError('')
+    getDailyBriefing(trackedCompanies.slice(0, 20).map(company => company.ticker), briefingWindow)
+      .then(result => { if (current) setDailyBriefing(result.briefing) })
+      .catch(error => { if (current) { setDailyBriefing(null); setDailyBriefingError(error instanceof Error ? error.message : 'Saved briefing unavailable.') } })
+      .finally(() => { if (current) setBriefingLoading(false) })
+    return () => { current = false }
+  }, [trackedTickers, trackedCompanies.map(company => company.ticker).join(','), briefingWindow])
   const filteredCompanies = useMemo(() => {
     const list = trackedCompanies
     const search = query.trim().toLowerCase()
@@ -514,12 +585,34 @@ function App() {
       setFinancialEvidence([])
       setPromiseRows([])
       setPromiseTrackRecord(null)
+      setResearchDatasetLoading({ financials: false, evidence: false, commitments: false })
+      setResearchDatasetErrors({ financials: '', evidence: '', commitments: '' })
       return
     }
     const ticker = encodeURIComponent(selectedDocument.ticker)
-    fetch(`${API}/api/research/financials?ticker=${ticker}&statement_basis=${statementBasis}&figure_type=${figureType}&adjustment_note=${encodeURIComponent(adjustmentNote)}`).then(response => response.ok ? response.json() : null).then(payload => setFinancialPeriods(payload?.periods ?? [])).catch(() => setFinancialPeriods([]))
-    fetch(`${API}/api/research/evidence?ticker=${ticker}`).then(response => response.ok ? response.json() : null).then(payload => setFinancialEvidence(payload?.records ?? [])).catch(() => setFinancialEvidence([]))
-    fetch(`${API}/api/research/promises?ticker=${ticker}`).then(response => response.ok ? response.json() : null).then(payload => { setPromiseRows(payload?.promises ?? []); setPromiseTrackRecord(payload?.track_record ?? null) }).catch(() => { setPromiseRows([]); setPromiseTrackRecord(null) })
+    const controller = new AbortController()
+    setResearchDatasetLoading({ financials: true, evidence: true, commitments: true })
+    setResearchDatasetErrors({ financials: '', evidence: '', commitments: '' })
+    const read = async (path: string) => {
+      const response = await fetch(`${API}${path}`, { signal: controller.signal })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : `Research service returned ${response.status}.`)
+      return payload
+    }
+    void read(`/api/research/financials?ticker=${ticker}&statement_basis=${statementBasis}&figure_type=${figureType}&adjustment_note=${encodeURIComponent(adjustmentNote)}`).then(payload => {
+      if (!Array.isArray(payload.periods)) throw new Error('FINN returned an invalid financial comparison response.')
+      setFinancialPeriods(payload.periods)
+    }).catch(error => { if (!controller.signal.aborted) setResearchDatasetErrors(current => ({ ...current, financials: error instanceof Error ? error.message : 'Financial comparisons are unavailable.' })) }).finally(() => { if (!controller.signal.aborted) setResearchDatasetLoading(current => ({ ...current, financials: false })) })
+    void read(`/api/research/evidence?ticker=${ticker}`).then(payload => {
+      if (!Array.isArray(payload.records)) throw new Error('FINN returned an invalid financial evidence response.')
+      setFinancialEvidence(payload.records)
+    }).catch(error => { if (!controller.signal.aborted) setResearchDatasetErrors(current => ({ ...current, evidence: error instanceof Error ? error.message : 'The financial evidence ledger is unavailable.' })) }).finally(() => { if (!controller.signal.aborted) setResearchDatasetLoading(current => ({ ...current, evidence: false })) })
+    void read(`/api/research/promises?ticker=${ticker}`).then(payload => {
+      if (!Array.isArray(payload.promises)) throw new Error('FINN returned an invalid commitment response.')
+      setPromiseRows(payload.promises)
+      setPromiseTrackRecord(payload.track_record ?? null)
+    }).catch(error => { if (!controller.signal.aborted) setResearchDatasetErrors(current => ({ ...current, commitments: error instanceof Error ? error.message : 'Management commitments are unavailable.' })) }).finally(() => { if (!controller.signal.aborted) setResearchDatasetLoading(current => ({ ...current, commitments: false })) })
+    return () => controller.abort()
   }, [selectedDocument?.ticker, documentId, statementBasis, figureType, adjustmentNote])
   const heldCompanies = useMemo(() => (portfolio?.companies ?? []).filter(company => (holdings[company.ticker]?.shares ?? 0) > 0), [portfolio, holdings])
   const heldTickerKey = useMemo(() => heldCompanies.map(company => company.ticker).sort().join(','), [heldCompanies])
@@ -710,6 +803,7 @@ function App() {
     const source = documents.find(doc => tickerKey(doc.ticker) === tickerKey(ticker) && !doc.superseded_by)
     setDocumentId(source?.id ?? '')
     setResearchCompanyTicker(ticker)
+    rememberResearchCompany(ticker)
     setResearchTab(source ? 'ask' : 'sources')
     navigate('Research', 'research')
   }
@@ -719,12 +813,46 @@ function App() {
     if (!company) return
     const source = documents.find(doc => tickerKey(doc.ticker) === tickerKey(company.ticker) && !doc.superseded_by)
     setResearchCompanyTicker(company.ticker)
+    rememberResearchCompany(company.ticker)
     setResearchCompanySearch('')
     setResearchCompanyPickerOpen(false)
     setDocumentId(source?.id ?? '')
     setResearchAllCompanySources(false)
     setHomeScopeCompanyTicker('')
     setResearchMessage('')
+  }
+
+  function rememberResearchCompany(ticker: string) {
+    setRecentResearchTickers(current => {
+      const next=[ticker,...current.filter(item=>tickerKey(item)!==tickerKey(ticker))].slice(0,6)
+      try { localStorage.setItem('finn-recent-research-v1',JSON.stringify(next)) } catch { /* Recent selections are an optional browser convenience. */ }
+      return next
+    })
+  }
+
+  function selectResearchPath(tab: 'ask'|'financials'|'commitments'|'analysis'|'sources') {
+    setResearchTab(tab)
+    setResearchPathDialogOpen(true)
+    navigate('Research','research')
+  }
+
+  function carryQuestionToResearch(question: string, ticker?: string) {
+    const normalized=question.trim()
+    if(normalized.length<5||homeQuestionHandoff||researchBusy||researchRequestLock.current)return
+    setHomeAIQuestion(normalized)
+    setHomeAICompanyTicker(ticker??'')
+    setHomeQuestionHandoff({id:`${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,question:normalized,ticker})
+    navigate('Research','research')
+  }
+
+  function submitDiscoverySearch(event: any) {
+    event.preventDefault()
+    const query=discoverySearch.trim()
+    if(query.length<2)return
+    const company=discoveryCompanyMatches.find(item=>tickerKey(item.ticker)===tickerKey(query)||item.name.toLowerCase()===query.toLowerCase())
+      ?? discoveryCompanyMatches.find(item=>item.name.toLowerCase().startsWith(query.toLowerCase())||item.ticker.toLowerCase().startsWith(query.toLowerCase()))
+    if(company){chooseResearchCompany(company.ticker);setDiscoverySearch('');navigate('Research','research');return}
+    if(query.length>=5){setDiscoverySearch('');carryQuestionToResearch(query)}
   }
 
   function selectSubview<T extends string>(setSubview: (value: T) => void, value: T) {
@@ -775,7 +903,7 @@ function App() {
 
   async function buildDailyBriefing() {
     setDailyBriefingBusy(true); setDailyBriefingError('')
-    try { setDailyBriefing(await requestDailyBriefing(trackedCompanies.slice(0,20).map(company=>({ticker:company.ticker,company:company.name,sector:company.sector})),24)) }
+    try { setDailyBriefing(await requestDailyBriefing(trackedCompanies.slice(0,20).map(company=>({ticker:company.ticker,company:company.name,sector:company.sector})),briefingWindow)) }
     catch(error) { setDailyBriefingError(error instanceof Error?error.message:'FINN could not build the daily briefing.') }
     finally { setDailyBriefingBusy(false) }
   }
@@ -917,10 +1045,7 @@ function App() {
 
   function submitHomeQuestion(event: any) {
     event.preventDefault()
-    const question = homeAIQuestion.trim()
-    if (question.length < 5 || homeQuestionHandoff || researchBusy || researchRequestLock.current) return
-    setHomeQuestionHandoff({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, question, ticker: homeAICompanyTicker || undefined })
-    navigate('Research', 'research')
+    carryQuestionToResearch(homeAIQuestion,homeAICompanyTicker||undefined)
   }
 
   async function saveQuarterlyFigures(event: any) {
@@ -1134,34 +1259,30 @@ function App() {
       <div className="workspace-label">CURRENT UNIVERSE</div>
       <div className="workspace"><div className="workspace-icon"><BriefcaseBusiness size={15}/></div><span><b>Investor desk</b><small>{portfolio?.companies.length ?? 20} NSE companies</small></span></div>
       <div className="nav-label">WORKSPACE</div>
-      <nav>{nav.map(({label,icon:Icon,target})=><button key={label} aria-current={active===label?'page':undefined} className={`nav-item ${active===label?'selected':''}`} onClick={()=>navigate(label,target)}><Icon size={18}/><span>{label}</span>{label==='Alerts'&&portfolio&&<b>{String(portfolio.alert_count + announcements.filter(item=>item.priority==='high').length).padStart(2,'0')}</b>}</button>)}</nav>
+      <nav>{nav.map(({label,icon:Icon,target})=><button key={label} aria-current={active===label?'page':undefined} className={`nav-item ${active===label?'selected':''}`} onClick={()=>navigate(label,target)}><Icon size={18}/><span>{label}</span>{label==='Alerts'&&alertUnreadCount>0&&<b>{alertUnreadCount>99?'99+':String(alertUnreadCount).padStart(2,'0')}</b>}</button>)}</nav>
       <div className="sidebar-bottom"><div className="source-note"><ShieldCheck size={17}/><span>Primary-source research<br/><small>Answers link back to evidence</small></span></div><div className="sidebar-footnote">FINN · INVESTOR INTELLIGENCE</div></div>
     </aside>
-    <main className={`main ${active==='Alerts'?'alerts-page':''} ${active==='Research'?'research-page':''} ${active==='Portfolio'?'portfolio-page':''}`}>
+    <main className={`main ${active==='Home'?'home-page':''} ${active==='Alerts'?'alerts-page':''} ${active==='Research'?'research-page':''} ${active==='Portfolio'?'portfolio-page':''}`}>
       <header className="topbar"><div className="crumb">FINN <span>/</span> {active.toUpperCase()}</div><div className="top-actions"><span className={`market-status ${marketError?'status-error':latestSessionIsStale?'status-stale':'status-current'}`} role="status" aria-live="polite" aria-label={`${marketStatusLabel}${latestPortfolioUpdate?`; last successful update ${new Date(latestPortfolioUpdate).toLocaleString('en-IN')}`:''}`} title={`${portfolio?.source ?? 'Market data'}${latestPortfolioUpdate?` · last successful update ${new Date(latestPortfolioUpdate).toLocaleString('en-IN')}`:''}`}><i aria-hidden="true"/><span>{marketStatusLabel}</span></span><button className="icon-button" aria-label="Refresh market prices" onClick={()=>void loadPortfolio(true)} disabled={refreshing}><RefreshCw size={16} className={refreshing?'spin':''}/></button><div className="avatar small">A</div></div></header>
       <div className="content" id="home">
       <div className="page-view" key={active}>
       {active==='Home'&&<>
         <div className="eyebrow"><span>FINN INVESTOR DESK</span><i/> DAILY BRIEFING</div>
         <section className="greeting"><div><h1>Daily intelligence</h1><p>What deserves your attention across tracked companies and priced holdings today?</p></div></section>
-        <section className="home-briefing-card" aria-labelledby="home-briefing-title"><div className="section-heading"><div><span className="eyebrow-mini">TRACKED COMPANY UPDATE</span><h2 id="home-briefing-title">Today’s intelligence briefing</h2><p>FINN reviews available completed-session signals and recent NSE filings. A market signal does not establish its cause.</p></div><button className="link-button" onClick={()=>void buildDailyBriefing()} disabled={dailyBriefingBusy||!trackedCompanies.length}>{dailyBriefingBusy?'Reviewing sources…':dailyBriefing?'Refresh briefing':'Build briefing'} <ArrowRight size={14}/></button></div>{dailyBriefingError&&<p className="error-banner" role="alert">{dailyBriefingError}</p>}{dailyBriefing?<><div className="briefing-coverage">Checked · {dailyBriefing.coverage?.market_available??0}/{dailyBriefing.coverage?.companies_requested??0} market quotes · {dailyBriefing.coverage?.filings_available?'NSE filings checked':'NSE filing feed unavailable'} · generated for this request only</div>{!dailyBriefing.sources.length&&<div className="briefing-no-evidence"><b>No cited developments were returned from the checked sources.</b><span>This does not establish that no company developments occurred. Review the filing and market coverage shown above.</span></div>}<IntelligenceAnswer result={dailyBriefing}/></>:<div className="briefing-empty-state"><div className="briefing-empty-mark"><FileSearch size={18}/></div><div><b>{trackedCompanies.length?'Briefing not generated yet':'No companies are tracked yet'}</b><p>{trackedCompanies.length?'Build a source-backed review of available market signals and tracked-company filings. FINN will show source coverage and any limitations.':'Add companies to your watchlist before asking FINN to review company developments.'}</p></div>{!trackedCompanies.length&&<button className="link-button" onClick={()=>{setPortfolioTab('watchlist');navigate('Portfolio','portfolio')}}>Open watchlist <ArrowRight size={14}/></button>}</div>}</section>
-        {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
-        <section className="home-attention" aria-labelledby="home-attention-title">
-          <div className="section-heading"><div><h2 id="home-attention-title">Needs attention</h2><p>Recent alerts and company filings for your holdings and watchlist.</p></div><button className="link-button" onClick={()=>navigate('Alerts','alerts')}>All alerts <ArrowRight size={14}/></button></div>
-          <div className="home-attention-list">
-            {homePriorityAlerts.map(item=>{
-              const isFiling=item.kind==='filing'
-              const latestTickerQuoteDate=portfolio?.companies.find(company=>tickerKey(company.ticker)===tickerKey(item.ticker))?.session_date
-              const quoteIsOlderThanAlert=Boolean(!isFiling&&item.session_date&&latestTickerQuoteDate&&item.session_date>latestTickerQuoteDate)
-              const filingSource=isFiling?announcements.find(source=>source.id===item.id)||announcements.find(source=>tickerKey(source.ticker)===tickerKey(item.ticker)&&source.subject===item.subject):undefined
-              const title=isFiling?item.subject??'Company filing':item.signal_type==='price_movement'?'Price movement alert':'Volume spike alert'
-              const detail=isFiling?item.details:item.signal_type==='price_movement'?`Session move ${item.change_pct===null||item.change_pct===undefined?'—':`${item.change_pct>0?'+':''}${item.change_pct.toFixed(2)}%`} · compared with previous close.`:`Volume ${item.volume_ratio_20d?.toFixed(2)??'—'}× the 20-session average.`
-              return <article className={`home-attention-item ${item.priority==='high'?'attention-high':''}`} key={item.id}><div className="home-attention-meta"><b>{item.ticker.replace(/\.(NS|BO)$/i,'')}</b><span className={`attention-priority ${item.priority}`}>{item.priority} priority</span><span>{isFiling?'Company filing':item.signal_type==='price_movement'?'Price movement':'Volume spike'}</span><time>{isFiling?'Filed':'Session'} · {shortDate(isFiling?item.filed_at??item.event_at:item.session_date??item.event_at)}</time></div><h3>{item.company}</h3><p>{title}</p>{detail&&<small>{detail}</small>}{quoteIsOlderThanAlert&&<small className="home-alert-data-gap" role="status">Latest quote · {shortDate(latestTickerQuoteDate)} · older than this alert session</small>}{!isFiling&&marketExplanations[item.id]&&<div className="home-attention-explanation"><b>{marketExplanations[item.id].ai_generated?'FINN interpretation':'Signal context'}</b><p>{marketExplanations[item.id].explanation}</p></div>}{isFiling&&explanations[item.id]&&<div className="home-attention-explanation"><b>{explanationModes[item.id]==='ai_grounded'?'Evidence-backed interpretation':'Filing context'}</b><p>{explanations[item.id]}</p></div>}{isFiling&&item.source_url&&<a href={item.source_url} target="_blank" rel="noreferrer">Open exchange filing <ArrowRight size={13}/></a>}{!isFiling&&<button className="home-research-link" onClick={()=>void explainMarketSignal(item)} disabled={marketExplaining===item.id}><Sparkles size={13}/>{marketExplaining===item.id?'Checking signal…':marketExplanations[item.id]?'Refresh context':'Why this signal matters'}</button>}{isFiling&&filingSource&&<button className="home-research-link" onClick={()=>void explainAnnouncement(filingSource)} disabled={explaining===item.id}><Sparkles size={13}/>{explaining===item.id?'Reviewing filing…':explanations[item.id]?'Refresh filing context':'Why this filing matters'}</button>}<button className="home-research-link" onClick={()=>openCompanyResearch(item.ticker)}>Investigate in Research <ArrowRight size={13}/></button></article>
-            })}
-            {homeAnnouncement&&!homeAnnouncementAlreadyShown&&<article className="home-attention-item"><div className="home-attention-meta"><b>{homeAnnouncement.ticker.replace(/\.(NS|BO)$/i,'')}</b><span>Company filing</span><span>{labelCategory(homeAnnouncement.category)}</span><time>Filed · {shortDate(homeAnnouncement.filed_at)}</time></div><h3>{homeAnnouncement.company}</h3><p>{homeAnnouncement.subject}</p><small>Importance {homeAnnouncement.importance}/100{homeAnnouncement.is_verified_example?' · verified demo filing':''}</small>{explanations[homeAnnouncement.id]&&<div className="home-attention-explanation"><b>{explanationModes[homeAnnouncement.id]==='ai_grounded'?'Evidence-backed interpretation':'Filing context'}</b><p>{explanations[homeAnnouncement.id]}</p></div>}<a href={homeAnnouncement.source_url} target="_blank" rel="noreferrer">Open exchange filing <ArrowRight size={13}/></a><button className="home-research-link" onClick={()=>void explainAnnouncement(homeAnnouncement)} disabled={explaining===homeAnnouncement.id}><Sparkles size={13}/>{explaining===homeAnnouncement.id?'Reviewing filing…':explanations[homeAnnouncement.id]?'Refresh filing context':'Why this filing matters'}</button><button className="home-research-link" onClick={()=>openCompanyResearch(homeAnnouncement.ticker)}>Investigate in Research <ArrowRight size={13}/></button></article>}
-            {alertHistoryLoading&&!homePriorityAlerts.length&&!homeAnnouncement?<div className="home-attention-empty">Loading recent company alerts…</div>:!homePriorityAlerts.length&&!homeAnnouncement?<div className="home-attention-empty">No recent priority alerts or tracked-company filings in this feed.{announcementError&&<span> Filing feed unavailable: {announcementError}</span>}</div>:null}
-          </div>
+        <section className="home-briefing-card home-intelligence-primary" aria-labelledby="home-briefing-title">
+          <div className="home-briefing-topline"><div><span className="eyebrow-mini">PUSH INTELLIGENCE · {dailyBriefing?.generated_at ? new Date(dailyBriefing.generated_at).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'}) : 'TRACKED COMPANY COVERAGE'}</span><h2 id="home-briefing-title">Daily intelligence briefing</h2><p>Material company developments, exchange filings and completed-session market signals.</p></div><button className="save-button" onClick={()=>void buildDailyBriefing()} disabled={dailyBriefingBusy||briefingLoading||!trackedCompanies.length}>{dailyBriefingBusy?<><RefreshCw size={14} className="spin"/> Reviewing sources…</>:<><RefreshCw size={14}/> {dailyBriefing?'Rebuild briefing':'Generate briefing'}</>}</button></div>
+          <div className="briefing-controls"><label>Reporting window<select aria-label="Briefing reporting window" value={briefingWindow} onChange={event=>setBriefingWindow(Number(event.target.value))}><option value={24}>Last 24 hours</option><option value={48}>Last 48 hours</option><option value={168}>Last 7 days</option></select></label><span>{briefingLoading?'Checking for a saved briefing…':dailyBriefing?.generated_at?`Last generated ${new Date(dailyBriefing.generated_at).toLocaleString('en-IN')}`:'Saved briefing will load automatically when available'}</span></div>
+          {dailyBriefingError&&<p className="error-banner" role="alert">{dailyBriefingError}</p>}
+          {dailyBriefing ? <>
+            <div className="briefing-stat-strip"><div><b>{dailyBriefing.coverage?.companies_covered??'—'}/{dailyBriefing.coverage?.companies_requested??trackedCompanies.length}</b><span>companies covered</span></div><div><b>{dailyBriefing.coverage?.announcements_reviewed??'—'}</b><span>announcements reviewed</span></div><div><b>{dailyBriefing.coverage?.material_developments??'—'}</b><span>material developments</span></div><div><b>{dailyBriefing.coverage?.market_signals??'—'}</b><span>market signals</span></div><div><b>{dailyBriefing.coverage?.latest_market_session??'Unavailable'}</b><span>latest completed session</span></div></div>
+            <div className="briefing-provider-row" aria-label="Source coverage">{Object.entries(dailyBriefing.providers??{}).map(([key,provider])=><span key={key} className={`provider-chip provider-${provider.status}`}><i/>{provider.source??labelCategory(key)} · {labelCategory(provider.status)}{provider.errors?.length?` (${provider.errors.length} unavailable)`:''}</span>)}</div>
+            {dailyBriefing.uncertainties?.map((item,index)=><p className="briefing-caveat" key={index}><ShieldCheck size={14}/>{item}</p>)}
+            <div className="home-intelligence-split"><section className="priority-feed"><div className="section-heading compact-heading"><div><span className="eyebrow-mini">WHAT CHANGED</span><h3>Priority intelligence</h3></div></div><HomeBriefingVisual result={dailyBriefing} histories={priceHistory}/></section><aside className="briefing-side-rail"><section className="briefing-results-card"><span className="eyebrow-mini">PRIMARY-SOURCE FIGURES</span><h3>Quarterly results</h3><p>Latest saved Research figures for tracked companies. Values are page-checked entries, not automatically extracted.</p>{dailyBriefing.quarterly_results?.length?dailyBriefing.quarterly_results.slice(0,3).map(result=><article className="briefing-result" key={`${result.ticker}-${result.period}`}><div><b>{result.company}</b><span>{result.period} · {labelCategory(result.statement_basis)}</span></div><div className="result-metric-grid">{(['revenue','ebitda','pbt','pat'] as const).map(metric=>{const row=result.metrics[metric];return <div key={metric}><small>{metric.toUpperCase()}</small><b>{row?.value==null?'—':new Intl.NumberFormat('en-IN',{maximumFractionDigits:2}).format(row.value)} {row?.unit??''}</b><span>QoQ {row?.qoq?.status==='available'&&row.qoq.change_pct!=null?`${row.qoq.change_pct>0?'+':''}${row.qoq.change_pct.toFixed(1)}%`:row?.qoq?.status==='missing_data'?'Missing':'Unavailable'} · YoY {row?.yoy?.status==='available'&&row.yoy.change_pct!=null?`${row.yoy.change_pct>0?'+':''}${row.yoy.change_pct.toFixed(1)}%`:row?.yoy?.status==='missing_data'?'Missing':'Unavailable'}</span></div>})}</div>{Object.values(result.metrics).find(row=>row?.source)?.source&&<a href={(()=>{const source=Object.values(result.metrics).find(row=>row?.source)?.source;return source?.document_id?`${API}/api/research/documents/${encodeURIComponent(source.document_id)}/file#page=${source.page}`:source?.source_url??''})()} target="_blank" rel="noreferrer">Source page {Object.values(result.metrics).find(row=>row?.source)?.source?.page} · {Object.values(result.metrics).find(row=>row?.source)?.source?.filename}</a>}</article>):<div className="home-attention-empty">No page-checked quarterly figures are saved for these companies.</div>}</section>
+              <section className="briefing-alert-summary"><span className="eyebrow-mini">ACTIVE MARKET SIGNALS</span><h3>Triggered alerts</h3>{portfolio?.alerts?.length?portfolio.alerts.slice(0,5).map(item=><div className="active-signal-row" key={item.ticker}><b>{item.name}</b><span>{item.ticker}</span><small>{item.unusual_price&&item.unusual_volume?'Price and volume':item.unusual_price?'Price movement':'Volume spike'} · {item.session_date??'session unavailable'}</small></div>):<p>No price or volume thresholds are currently triggered for available quotes.</p>}<button className="link-button" onClick={()=>navigate('Alerts','alerts')}>Manage alerts <ArrowRight size={14}/></button></section></aside></div>
+
+          </> : !briefingLoading && <div className="briefing-empty-state"><div className="briefing-empty-mark"><FileSearch size={18}/></div><div><b>{trackedCompanies.length?'No saved briefing yet':'No companies are tracked yet'}</b><p>{trackedCompanies.length?'FINN checks for a previously generated report automatically. Generate a briefing to create the first source-backed review.':'Add companies to your watchlist before asking FINN to review company developments.'}</p></div>{!trackedCompanies.length&&<button className="link-button" onClick={()=>{setPortfolioTab('watchlist');navigate('Portfolio','portfolio')}}>Open watchlist <ArrowRight size={14}/></button>}</div>}
         </section>
+        {marketError&&<div className="error-banner" role="alert"><span>{marketError}</span><button onClick={()=>void loadPortfolio(true)}>Retry <ArrowRight size={14}/></button></div>}
         <section className="home-ai-entry" aria-labelledby="home-ai-title">
           <div className="home-ai-heading"><span className="home-ai-mark"><Sparkles size={15}/></span><div><b id="home-ai-title">Ask FINN</b><p>Take a question into company research. It will only be submitted after you confirm its source scope.</p></div></div>
           <div className="home-ai-context"><label htmlFor="home-ai-company">Company context <span>optional</span></label><select id="home-ai-company" value={homeAICompanyTicker} onChange={event=>setHomeAICompanyTicker(event.target.value)}><option value="">Choose a company in Research</option>{researchCompanyChoices.map(company=><option key={company.ticker} value={company.ticker}>{company.name} · {company.ticker}</option>)}</select></div>
@@ -1195,7 +1316,22 @@ function App() {
       {active==='Alerts'&&<>
         <div className="eyebrow"><span>PUSH INTELLIGENCE</span><i/> EXCHANGE FILINGS & MARKET SIGNALS</div>
         <section className="greeting page-greeting"><div><h1>Intelligence feed</h1><p>Company filings and completed-session market signals, prioritized with their source and trigger context.</p></div></section>
-        <section className="alert-overview" aria-label="Alert summary"><article><small>TOTAL ALERTS</small><b>{alertHistory.length.toString().padStart(2,'0')}</b><span>{unreadOnly?`${alertHistory.filter(item=>!item.is_read).length} unread`:'Recorded in selected period'}</span></article><article><small>HIGH PRIORITY</small><b>{alertHistory.filter(item=>item.priority==='high').length.toString().padStart(2,'0')}</b><span>Results, price moves and material filings</span></article><article><small>MARKET SIGNALS</small><b>{alertHistory.filter(item=>item.kind==='market').length.toString().padStart(2,'0')}</b><span>One per company, signal and session</span></article></section>
+        <section className="alert-overview" aria-label="Alert summary">
+          <article><small>TOTAL ALERTS</small><b>{String(alertSummary?.total??alertHistory.length).padStart(2,'0')}</b><span>{announcementWindow===24?'Last 24 hours':announcementWindow===168?'Last 7 days':'Last 30 days'} · {alertSummary?.unread??alertHistory.filter(item=>!item.is_read).length} unread</span></article>
+          <article><small>HIGH PRIORITY</small><b>{String(alertSummary?.high_priority??alertHistory.filter(item=>item.priority==='high').length).padStart(2,'0')}</b><span>In the selected period</span></article>
+          <article><small>PRICE MOVES</small><b>{String(alertSummary?.price_movements??alertHistory.filter(item=>item.signal_type==='price_movement').length).padStart(2,'0')}</b><span>Threshold-based daily moves</span></article>
+          <article><small>VOLUME SPIKES</small><b>{String(alertSummary?.volume_spikes??alertHistory.filter(item=>item.signal_type==='volume_spike').length).padStart(2,'0')}</b><span>Against prior 20 sessions</span></article>
+        </section>
+        <section className="alert-analytics" aria-label="Alert activity analytics">
+          <article className="alert-chart-card"><div className="alert-chart-heading"><div><span className="eyebrow-mini">RECORDED EVENTS · IST</span><h2>Seven-day trend</h2></div><span>Daily count</span></div>
+            {alertSummary?.trend_7d_ist?.length?<div className="alert-trend-chart" role="img" aria-label={`Seven-day alert trend: ${alertSummary.trend_7d_ist.map(day=>`${day.date}, ${day.count} alerts`).join('; ')}`}>
+              {alertSummary.trend_7d_ist.map(day=>{const peak=Math.max(1,...alertSummary.trend_7d_ist.map(row=>row.count));return <div className="alert-trend-column" key={day.date}><b>{day.count||''}</b><span className="alert-trend-bar" style={{height:`${Math.max(day.count?8:2,day.count/peak*100)}%`}}/><small>{new Date(`${day.date}T12:00:00+05:30`).toLocaleDateString('en-IN',{day:'numeric',month:'short',timeZone:'Asia/Kolkata'})}</small></div>})}
+            </div>:<div className="alert-chart-empty">Trend data is unavailable until alert history loads.</div>}
+          </article>
+          <article className="alert-chart-card"><div className="alert-chart-heading"><div><span className="eyebrow-mini">SELECTED PERIOD</span><h2>Alerts by type</h2></div><span>{alertSummary?.total??alertHistory.length} total</span></div>
+            <div className="alert-category-chart">{([['filings','Corporate filings','filings'],['price_movements','Price movements','price'],['volume_spikes','Volume spikes','volume']] as const).map(([key,label,kind])=>{const count=key==='filings'?(alertSummary?.filings??0):key==='price_movements'?(alertSummary?.price_movements??0):(alertSummary?.volume_spikes??0);const total=alertSummary?.total??alertHistory.length;return <div className={`alert-category-row ${kind}`} key={key}><div><span>{label}</span><b>{count} <small>{total?`${Math.round(count/total*100)}%`:''}</small></b></div><i><span style={{width:`${total?count/total*100:0}%`}}/></i></div>})}</div>
+          </article>
+        </section>
         <section className="alerts-section unified-alerts anchor-section" id="alerts">
           <div className="section-heading"><div><h2>Alert feed</h2><p className="alert-feed-freshness"><span><small>Source</small><b>{portfolio?.source??'Market data'}</b></span><span><small>Latest completed session</small><b>{portfolio?.companies.find(company=>company.session_date)?.session_date??'Unavailable'}</b></span><span><small>Last successful market update</small><b>{portfolio?.last_successful_update?new Date(portfolio.last_successful_update).toLocaleString('en-IN'):'Unavailable'}</b></span><span><small>NSE filings updated</small><b>{announcementUpdatedAt?new Date(announcementUpdatedAt).toLocaleString('en-IN'):'Unavailable'}</b></span></p></div><div className="section-tools"><select aria-label="Alert history period" value={announcementWindow} onChange={event=>{const hours=Number(event.target.value);setAnnouncementWindow(hours);void loadAnnouncements(hours);void loadAlertHistory(hours)}}><option value={24}>Last 24 hours</option><option value={168}>Last 7 days</option><option value={720}>Last 30 days</option></select><button className="link-button" onClick={()=>{void loadPortfolio(true);void loadAnnouncements(announcementWindow);void loadAlertHistory(announcementWindow)}}>Refresh <RefreshCw size={13}/></button></div></div>
           <details className="alert-settings-disclosure"><summary>Configure alert thresholds <span>Volume and daily price move · OR trigger</span></summary><form className="threshold-panel alert-threshold-form" onSubmit={updateSettings}>
@@ -1213,7 +1349,7 @@ function App() {
             <button role="tab" aria-selected={alertsTab==='volume'} className={alertsTab==='volume'?'active':''} onClick={()=>{setAlertsTab('volume');setFilingFilter('all')}}><BarChart3 size={15}/> Volume spikes</button>
           </div>
           <div className="alert-feed-tools">{alertsTab==='filings'&&<div className="filing-category-filters" aria-label="Filing type filters">{([['all','All filings'],['results','Financial results'],['corporate','Corporate announcements'],['shareholding','Shareholding changes'],['dividend','Dividends'],['board','Board meetings'],['mergers','Mergers & acquisitions']] as [FilingFilter,string][]).map(([filter,label])=><button key={filter} className={filingFilter===filter?'active':''} aria-pressed={filingFilter===filter} onClick={()=>setFilingFilter(filter)}>{label}</button>)}</div>}<label className="unread-filter"><input type="checkbox" checked={unreadOnly} onChange={event=>setUnreadOnly(event.target.checked)}/> Unread only <span>{alertHistory.filter(item=>!item.is_read).length}</span></label></div>
-          {announcementError&&<div className="state-card alert-feed-notice"><span>{announcementError} Previously saved alerts remain available below.</span><button onClick={()=>void loadAnnouncements(announcementWindow)}>Retry filings</button></div>}
+          {announcementError&&<div className="state-card alert-feed-notice"><span>{announcementError} Previously saved alerts remain available below.</span><button onClick={()=>{void loadAnnouncements(announcementWindow);void loadAlertHistory(announcementWindow)}}>Retry filings</button></div>}
           {alertHistoryError&&<div className="state-card error-state" role="alert">{alertHistoryError}</div>}
           {alertHistoryLoading&&!alertHistory.length?<div className="state-card">Loading recorded alerts…</div>:visibleAlertHistory.length?<div className="unified-alert-feed">{visibleAlertHistory.map(item=>{
             const eventTime = item.filed_at ?? item.event_at
@@ -1240,16 +1376,33 @@ function App() {
         </section>
       </>}
 
-      {active==='Research'&&<>
+      {active==='Research'&&!currentResearchCompany&&<>
+        {researchPathDialogOpen&&<div className="research-path-dialog-backdrop" onKeyDown={event=>{if(event.key==='Escape')setResearchPathDialogOpen(false)}} onMouseDown={event=>{if(event.target===event.currentTarget)setResearchPathDialogOpen(false)}}><section className="research-path-dialog" role="dialog" aria-modal="true" aria-labelledby="research-path-dialog-title"><header><div><span className="eyebrow-mini">{researchTab==='ask'?'ASK FINN':researchTab==='financials'?'FINANCIALS':researchTab==='commitments'?'COMMITMENTS':researchTab==='analysis'?'BULL / BEAR':'SOURCES'}</span><h2 id="research-path-dialog-title">Choose a company to research</h2><p>Company coverage comes from FINN’s portfolio API and indexed document library. Sections show available records and identify missing sources.</p></div><button type="button" aria-label="Close company selector" onClick={()=>setResearchPathDialogOpen(false)}>×</button></header><label className="research-path-dialog-search"><Search size={16}/><input autoFocus value={researchCompanySearch} onChange={event=>setResearchCompanySearch(event.target.value)} placeholder="Search company or ticker"/></label><div className="research-path-company-list">{researchPathCompanyMatches.map(company=>{const sourceDocs=documents.filter(doc=>tickerKey(doc.ticker)===tickerKey(company.ticker)&&!doc.superseded_by);const tracked=portfolio?.companies.some(item=>tickerKey(item.ticker)===tickerKey(company.ticker))??false;return <button type="button" key={company.ticker} onClick={()=>{chooseResearchCompany(company.ticker);setResearchPathDialogOpen(false);setResearchCompanySearch('')}}><span className="research-path-company-copy"><b>{company.name}</b><small>{company.ticker}{company.sector?` · ${company.sector}`:''}</small></span><span className="research-path-company-coverage">{tracked&&<small>Portfolio</small>}<small>{sourceDocs.length?`${sourceDocs.length} indexed source${sourceDocs.length===1?'':'s'}`:'No indexed sources'}</small></span><ArrowRight size={15}/></button>})}{!researchPathCompanies.length&&!marketError&&!researchDocumentsError&&(!portfolio||!researchDocumentsLoaded)&&<div className="state-card">Company coverage is still loading from FINN.</div>}{!researchPathCompanies.length&&(marketError||researchDocumentsError)&&<div className="state-card error-state">Company data is unavailable. Retry FINN’s Portfolio or Research service.</div>}{!researchPathCompanies.length&&portfolio&&researchDocumentsLoaded&&!marketError&&!researchDocumentsError&&<div className="state-card">FINN returned no portfolio companies or indexed-source issuers. Use Sources to search for a verified issuer.</div>}{researchPathCompanies.length&&researchCompanySearch.trim()&&!researchPathCompanyMatches.length&&<div className="state-card">No matching company in FINN’s portfolio or indexed source library. Use Sources to search the issuer registry.</div>}</div></section></div>}
+        <section className="research-discovery-hero" aria-labelledby="research-discovery-title">
+          <span className="discovery-kicker"><Search size={14}/> FINN RESEARCH</span><h1 id="research-discovery-title">Company research,<br/><em>grounded in evidence.</em></h1><p>Choose a company to investigate its results, management guidance, risks and primary-source documents.</p>
+          <div className="research-landing-search-wrap"><label className="sr-only" htmlFor="research-landing-search">Search a company name or ticker</label><div className="research-landing-search"><Search size={19}/><input id="research-landing-search" role="combobox" aria-expanded={researchCompanyPickerOpen&&researchCompanySearch.trim().length>0} aria-controls="research-landing-results" aria-autocomplete="list" value={researchCompanySearch} onFocus={()=>setResearchCompanyPickerOpen(true)} onChange={event=>{setResearchCompanySearch(event.target.value);setResearchCompanyPickerOpen(true)}} onKeyDown={event=>{if(event.key==='Escape')setResearchCompanyPickerOpen(false);if(event.key==='Enter'&&researchCompanyMatches[0]){event.preventDefault();chooseResearchCompany(researchCompanyMatches[0].ticker)}}} placeholder="Search a registered company or NSE ticker…"/>{researchCompanySearch&&<button type="button" aria-label="Clear company search" onClick={()=>{setResearchCompanySearch('');setResearchCompanyPickerOpen(false)}}>×</button>}</div>
+            {researchCompanyPickerOpen&&researchCompanySearch.trim()&&<div className="research-company-results research-landing-results" id="research-landing-results" role="listbox">{researchCompanyMatches.length?researchCompanyMatches.map(company=><button type="button" role="option" aria-selected="false" key={company.ticker} onClick={()=>chooseResearchCompany(company.ticker)}><span><b>{company.name}</b><small>{company.ticker}{company.sector?` · ${company.sector}`:''}</small></span>{documents.some(doc=>tickerKey(doc.ticker)===tickerKey(company.ticker)&&!doc.superseded_by)&&<small>Primary sources indexed</small>}</button>):<div className="research-no-company-match">No matching company in the current portfolio or source library. You can add a company in Portfolio or open Sources to search the issuer registry.</div>}</div>}
+          </div>
+          <div className="research-landing-coverage"><span>{portfolio?`${portfolio.companies.length} tracked portfolio companies`:marketError?'Portfolio company coverage unavailable':'Loading portfolio companies…'}</span><span>{researchDocumentsError?'Source coverage unavailable':researchDocumentsLoaded?`${documents.filter(doc=>!doc.superseded_by).length} indexed primary-source documents`:'Loading source coverage…'}</span></div>
+        </section>
+        {homeScopeNeedsConfirmation&&<aside className="research-question-handoff" role="status"><b>Your question is ready for source-scoped research</b><blockquote>{researchQuestion}</blockquote><span>Choose a company to review its available primary sources. FINN will wait for you to confirm a source before submitting the question.</span></aside>}
+        <section className="discovery-section research-path-section"><div className="discovery-section-heading"><div><span className="eyebrow-mini">CHOOSE A RESEARCH PATH</span><h2>What would you like to understand?</h2></div></div>
+          <div className="research-landing-paths">
+            {([['ask',Sparkles,'Ask FINN','Find answers in indexed annual reports, results and transcripts.'],['financials',BarChart3,'Financials','Compare revenue, EBITDA, PBT and PAT by reported period.'],['commitments',Target,'Commitments','Track management guidance against reported results.'],['analysis',TrendingUp,'Bull / Bear','Review both cases with supporting source evidence.'],['sources',FileSearch,'Sources','Discover, select and manage primary-source documents.']] as const).map(([tab,Icon,title,description])=><button key={tab} className={researchPathDialogOpen&&researchTab===tab?'selected':''} aria-pressed={researchPathDialogOpen&&researchTab===tab} onClick={()=>selectResearchPath(tab)}><Icon size={21}/><span><b>{title}</b><small>{description}</small></span><ArrowRight size={16}/></button>)}
+          </div>
+        </section>
+        <section className="discovery-section"><div className="discovery-section-heading"><div><span className="eyebrow-mini">COMPANY UNIVERSE</span><h2>Featured companies</h2></div><button className="link-button" onClick={()=>{setPortfolioTab('watchlist');navigate('Portfolio','portfolio')}}>Browse watchlist <ArrowRight size={14}/></button></div>
+          {featuredResearchCompanies.length?<div className="featured-company-grid">{featuredResearchCompanies.map(company=><button key={company.ticker} onClick={()=>chooseResearchCompany(company.ticker)}><span className="company-monogram">{company.name.split(/\s+/).map(word=>word[0]).join('').slice(0,2).toUpperCase()}</span><span><b>{company.name}</b><small>{company.ticker}{company.sector?` · ${company.sector}`:''}</small><small>{documents.some(doc=>tickerKey(doc.ticker)===tickerKey(company.ticker)&&!doc.superseded_by)?'Indexed primary sources available':'No indexed primary source yet'}</small></span><ArrowRight size={15}/></button>)}</div>:<div className="discovery-empty">Featured companies will appear when the portfolio universe loads.</div>}
+        </section>
+        <section className="discovery-section"><div className="discovery-section-heading"><div><span className="eyebrow-mini">YOUR WORKSPACE</span><h2>Recently opened</h2></div><span className="discovery-subnote">Stored in this browser</span></div>{recentResearchCompanies.length?<div className="recent-company-list">{recentResearchCompanies.map(company=><button key={company.ticker} onClick={()=>chooseResearchCompany(company.ticker)}><span>{company.name}<small>{company.ticker}</small></span><ArrowRight size={14}/></button>)}</div>:<div className="discovery-empty">Your recent company selections will appear here after you open a company.</div>}</section>
+      </>}
+
+      {active==='Research'&&currentResearchCompany&&<>
         <div className="eyebrow"><span>PULL RESEARCH</span><i/> EVIDENCE WITH SOURCES</div>
-        <section className="greeting page-greeting"><div><h1>Company research</h1><p>Search company filings and reports, then review answers with document and page citations.</p></div></section>
-        <section className="research-focus-card" aria-label="Company research context">
-          <div className="research-company-search"><label htmlFor="research-company-search">Research a company</label><div className="research-search-control"><Search size={16}/><input id="research-company-search" role="combobox" aria-expanded={researchCompanyPickerOpen&&researchCompanySearch.trim().length>0} aria-controls="research-company-results" aria-autocomplete="list" value={researchCompanySearch} onFocus={()=>setResearchCompanyPickerOpen(true)} onChange={event=>{setResearchCompanySearch(event.target.value);setResearchCompanyPickerOpen(true)}} onKeyDown={event=>{if(event.key==='Escape')setResearchCompanyPickerOpen(false);if(event.key==='Enter'&&researchCompanyMatches[0]){event.preventDefault();chooseResearchCompany(researchCompanyMatches[0].ticker)}}} placeholder="Search company name or ticker"/>{researchCompanySearch&&<button type="button" aria-label="Clear company search" onClick={()=>{setResearchCompanySearch('');setResearchCompanyPickerOpen(false)}}>×</button>}</div>{researchCompanyPickerOpen&&researchCompanySearch.trim()&&<div className="research-company-results" id="research-company-results" role="listbox">{researchCompanyMatches.length?researchCompanyMatches.map(company=><button type="button" role="option" aria-selected={tickerKey(company.ticker)===tickerKey(currentResearchTicker)} key={company.ticker} onClick={()=>chooseResearchCompany(company.ticker)}><span><b>{company.name}</b><small>{company.ticker}{company.sector?` · ${company.sector}`:''}</small></span>{documents.some(doc=>tickerKey(doc.ticker)===tickerKey(company.ticker)&&!doc.superseded_by)&&<small>Sources indexed</small>}</button>):<div className="research-no-company-match">No matching company in the current portfolio and source library. For an outside company, search the issuer registry in Sources.</div>}</div>}</div>
-          <div className="research-company-identity"><div><span className="eyebrow-mini">CURRENT COMPANY</span><h2>{currentResearchCompany?.name??'Choose a company to begin'}</h2><span>{currentResearchCompany?.ticker??'Search a portfolio company or indexed issuer'}</span></div>{currentResearchCompany&&<div className="research-coverage-summary"><b>{currentResearchDocuments.length}</b><span>indexed sources</span><small>{currentResearchDocuments.length?Array.from(new Set(currentResearchDocuments.map(doc=>doc.document_type))).map(labelCategory).join(' · '):'No primary-source documents indexed for this company'}</small></div>}</div>
-          {currentResearchCompany&&<>
-          <div className="research-context-lower"><section className="research-suggestions"><span className="eyebrow-mini">QUESTIONS TO START WITH</span>{suggestedResearchQuestions.length?suggestedResearchQuestions.map(question=><button key={question} onClick={()=>{setResearchQuestion(question);setResearchTab('ask')}}>{question} <ArrowRight size={13}/></button>):<button className="research-source-prompt" onClick={()=>setResearchTab('sources')}>Find primary sources to enable cited answers <ArrowRight size={13}/></button>}</section>
-              <section className="research-recent-developments"><div className="research-context-section-heading"><span className="eyebrow-mini">RECENT DEVELOPMENTS</span><small>Available feed</small></div>{researchDevelopments.length?researchDevelopments.map(item=><article key={item.id}><span className="research-development-type">{item.kind}</span><b>{item.title}</b>{item.detail&&<p>{item.detail}</p>}<div><time>{shortDate(item.date)}</time><a href={item.href} target="_blank" rel="noreferrer">Open source ↗</a></div></article>):<p>No recent filings or market alerts for this company in the current feed.</p>}</section></div>
-          </>}
+        <section className="greeting page-greeting"><div><h1>{currentResearchCompany.name}</h1><p>{currentResearchCompany.ticker} · Investigate reported performance, management commentary and risks with source-backed evidence.</p></div></section>
+        <section className="research-focus-card research-workspace-context" aria-label="Selected company context">
+          <div className="research-company-search"><label htmlFor="research-company-search">Switch company</label><div className="research-search-control"><Search size={16}/><input id="research-company-search" role="combobox" aria-expanded={researchCompanyPickerOpen&&researchCompanySearch.trim().length>0} aria-controls="research-company-results" aria-autocomplete="list" value={researchCompanySearch} onFocus={()=>setResearchCompanyPickerOpen(true)} onChange={event=>{setResearchCompanySearch(event.target.value);setResearchCompanyPickerOpen(true)}} onKeyDown={event=>{if(event.key==='Escape')setResearchCompanyPickerOpen(false);if(event.key==='Enter'&&researchCompanyMatches[0]){event.preventDefault();chooseResearchCompany(researchCompanyMatches[0].ticker)}}} placeholder="Search company name or ticker"/>{researchCompanySearch&&<button type="button" aria-label="Clear company search" onClick={()=>{setResearchCompanySearch('');setResearchCompanyPickerOpen(false)}}>×</button>}</div>{researchCompanyPickerOpen&&researchCompanySearch.trim()&&<div className="research-company-results" id="research-company-results" role="listbox">{researchCompanyMatches.length?researchCompanyMatches.map(company=><button type="button" role="option" aria-selected={tickerKey(company.ticker)===tickerKey(currentResearchTicker)} key={company.ticker} onClick={()=>chooseResearchCompany(company.ticker)}><span><b>{company.name}</b><small>{company.ticker}{company.sector?` · ${company.sector}`:''}</small></span>{documents.some(doc=>tickerKey(doc.ticker)===tickerKey(company.ticker)&&!doc.superseded_by)&&<small>Sources indexed</small>}</button>):<div className="research-no-company-match">No matching company in the current portfolio and source library. For an outside company, search the issuer registry in Sources.</div>}</div>}</div>
+          <div className="research-coverage-summary"><b>{currentResearchDocuments.length}</b><span>indexed sources</span><small>{currentResearchDocuments.length?Array.from(new Set(currentResearchDocuments.map(doc=>doc.document_type))).map(labelCategory).join(' · '):'No primary-source documents indexed for this company'}</small><button type="button" className="link-button" onClick={()=>setResearchTab('sources')}>{currentResearchDocuments.length?'Manage sources':'Find sources'} <ArrowRight size={13}/></button></div>
         </section>
         <div className="page-tabs research-tool-tabs" role="tablist" aria-label="Research workspace">
           <button role="tab" title="Ask FINN" aria-selected={researchTab==='ask'} className={researchTab==='ask'?'active':''} onClick={()=>selectSubview(setResearchTab,'ask')}><Sparkles size={15}/><span>Ask</span></button>
@@ -1261,7 +1414,7 @@ function App() {
         <section className="research-source-panel" hidden={researchTab!=='sources'}>
           <div className="research-source-panel-heading"><div><span className="eyebrow-mini">RESEARCH EVIDENCE</span><h2>Find and manage primary sources</h2><p>Search official public sources, explicitly import a verified PDF, or manage documents already in your library.</p></div><span className="coverage-count">{documents.filter(doc=>!doc.superseded_by).length} indexed</span></div>
           <SourceDiscovery initialCompany={currentResearchCompany?.name??currentResearchTicker} onIndexed={documentId=>{setDocumentId(documentId);setHomeScopeDocumentId(documentId);setHomeScopeCompanyTicker(currentResearchTicker);setResearchTab('ask');void loadDocuments(documentId)}}/>
-          <details className="manage-documents-disclosure" open>
+          <details className="manage-documents-disclosure" id="research-document-management" open>
             <summary>Manual upload and document library <span>{documents.length} documents</span></summary>
             <div className="manage-documents-content"><p>Use manual upload when discovery has no direct attachment or the official source is unavailable.</p><form className="upload-panel" onSubmit={uploadResearch}><label>Company<input name="company" required placeholder="e.g. Reliance Industries"/></label><label>NSE ticker<input name="ticker" required placeholder="e.g. RELIANCE.NS"/></label><label>Source type<select name="document_type" required><option>Annual report</option><option>Quarterly results</option><option>Earnings-call transcript</option><option>Investor presentation</option></select></label><label>Reporting period<input name="reporting_period" required placeholder="e.g. FY2026 or Q2 FY2027"/></label><label>Official source URL (optional)<input name="source_url" type="url" placeholder="https://www.nseindia.com/..."/></label><label className="file-picker"><Upload size={16}/>{researchFilename||'Choose PDF'}<input type="file" name="file" accept="application/pdf,.pdf" required onChange={event=>setResearchFilename(event.target.files?.[0]?.name ?? '')}/></label><button type="submit" disabled={researchBusy}>Index primary source</button></form>{documentUploadState&&<p className={`indexing-message ${documentUploadState.status}`} role="status"><b>{documentUploadState.status}</b> · {documentUploadState.filename} · {documentUploadState.message}</p>}<small className="upload-hint">Text-searchable PDFs only · maximum 45 MB. Tracked-company names and tickers are checked as a pair. Scanned image PDFs need OCR before upload.</small>
               <div className="document-library"><div className="section-heading"><div><h3>Document library</h3><p>{documents.length} primary sources · search, cite, and manage their index.</p></div></div><div className="document-library-tools"><label className="search-field"><Search size={15}/><input value={documentSearch} onChange={event=>setDocumentSearch(event.target.value)} placeholder="Search company, ticker, period, or filename"/></label><select aria-label="Filter document type" value={documentTypeFilter} onChange={event=>setDocumentTypeFilter(event.target.value)}><option value="all">All source types</option>{Array.from(new Set(documents.map(doc=>doc.document_type))).sort().map(type=><option key={type}>{type}</option>)}</select></div><input ref={replaceInput} hidden type="file" accept="application/pdf,.pdf" onChange={replaceResearchDocument}/>{documentActionMessage&&<p className="workflow-message">{documentActionMessage}</p>}
@@ -1270,7 +1423,7 @@ function App() {
             </div>
           </details>
         </section>
-        <section className="research-workflow anchor-section" id="research" hidden={researchTab==='sources'}><div className="section-heading"><div><h2>Primary-source company research</h2><p>Upload an annual report or earnings-call transcript, then ask a question with page citations.</p></div><span className="market-source">{aiEnabled?`${aiProvider} available`:'Local retrieval active'}</span></div>
+        <section className={`research-workflow anchor-section research-workflow-${researchTab}`} id="research" hidden={researchTab==='sources'}><div className="section-heading"><div><span className="eyebrow-mini">{researchTab==='ask'?'EVIDENCE-LED Q&A':researchTab==='financials'?'REPORTED PERFORMANCE':researchTab==='commitments'?'GUIDANCE TRACK RECORD':'BALANCED THESIS'}</span><h2>{researchTab==='ask'?'Ask FINN':researchTab==='financials'?'Financial performance':researchTab==='commitments'?'Management commitments':'Bull vs Bear'}</h2><p>{researchTab==='ask'?'Ask a focused question against this company’s indexed primary sources. Answers are independent and citations can be opened at the exact page.':researchTab==='financials'?'Review reported quarterly figures, like-for-like comparisons, and the source pages behind each value.':researchTab==='commitments'?'Compare explicit management guidance with reported results on a matching basis and period.': 'Build a balanced view from retrieved company documents; inspect the evidence and coverage before relying on a conclusion.'}</p></div><span className="market-source">{aiEnabled?`${aiProvider} available`:'Local retrieval active'}</span></div>
           <div className="research-pane" hidden={researchTab!=='ask'}>
           {researchMessage&&<p className="workflow-message" role="status">{researchMessage}</p>}
           {homeScopeNeedsConfirmation&&<div className="ai-scope-prompt" role="status"><b>Choose the evidence scope for this question</b><p>{documents.length ? 'Select a document, or choose its company scope below. FINN will not submit until you confirm by pressing Ask FINN.' : 'Your question is preserved. Upload and index a primary-source PDF to choose a scope and submit it.'}</p>{researchQuestion&&<blockquote>{researchQuestion}</blockquote>}</div>}
@@ -1287,22 +1440,24 @@ function App() {
           </div>
           {selectedDocument&&<>
             <div className="research-subsection" hidden={researchTab!=='financials'}><div className="section-heading"><div><h3>Quarterly financial comparisons</h3><p>Compare like with like. Figures are grouped by statement basis and reported or adjusted presentation; every saved value keeps its source page and excerpt.</p></div></div>
+              {researchDatasetLoading.financials&&<div className="state-card" role="status">Loading reported financial periods from FINN…</div>}{researchDatasetErrors.financials&&<div className="state-card error-state" role="alert">Financial comparisons could not be loaded: {researchDatasetErrors.financials}</div>}
               <div className="financial-scope-controls"><label>Statement basis<select value={statementBasis} onChange={event=>setStatementBasis(event.target.value as 'consolidated'|'standalone')}><option value="consolidated">Consolidated</option><option value="standalone">Standalone</option></select></label><label>Figure presentation<select value={figureType} onChange={event=>setFigureType(event.target.value as 'reported'|'adjusted')}><option value="reported">Reported</option><option value="adjusted">Adjusted</option></select></label>{figureType==='adjusted'&&<label className="adjustment-note-field">Adjustment definition<input value={adjustmentNote} onChange={event=>setAdjustmentNote(event.target.value)} maxLength={500} placeholder="e.g. exclude one-time restructuring charge"/><small>Comparisons include only figures using this same definition.</small></label>}</div>
               <details className="research-company-compare"><summary>Compare companies using shared saved quarters</summary><p>FINN compares only exact shared quarters, the same statement basis and presentation, and matching units. No missing figures are estimated.</p><div><label>Company one<select value={(comparisonTickers[0] ?? '')} onChange={event=>setComparisonTickers([event.target.value,(comparisonTickers[1] ?? '')])}><option value="">Choose a company</option>{Array.from(new Map(documents.filter(doc=>!doc.superseded_by).map(doc=>[doc.ticker,{ticker:doc.ticker,company:doc.company}])).values()).map(company=><option key={company.ticker} value={company.ticker}>{company.company} · {company.ticker}</option>)}</select></label><label>Company two<select value={(comparisonTickers[1] ?? '')} onChange={event=>setComparisonTickers([(comparisonTickers[0] ?? ''),event.target.value])}><option value="">Choose a company</option>{Array.from(new Map(documents.filter(doc=>!doc.superseded_by).map(doc=>[doc.ticker,{ticker:doc.ticker,company:doc.company}])).values()).map(company=><option key={company.ticker} value={company.ticker}>{company.company} · {company.ticker}</option>)}</select></label><button className="link-button" onClick={()=>void compareResearchCompanies()} disabled={researchComparisonBusy}>{researchComparisonBusy?'Comparing…':'Compare'} <ArrowRight size={14}/></button></div>{researchComparisonError&&<p className="workflow-message" role="alert">{researchComparisonError}</p>}{researchComparison&&<div className="research-compare-result"><b>{researchComparison.tickers.join(' vs ')} · {researchComparison.statement_basis} · {researchComparison.figure_type}</b><p>{researchComparison.answer}</p>{researchComparison.comparisons.map(period=><section key={period.period}><h4>{period.period}</h4>{period.metrics.map(metric=><div className="research-compare-row" key={metric.metric}><b>{metric.metric.replaceAll('_',' ').toUpperCase()}</b>{metric.values.map(value=>{const source=researchComparison.sources.find(item=>item.id===value.source_id);return <span key={value.ticker}>{value.company} <strong>{value.value.toLocaleString('en-IN')} {value.unit}</strong>{source?.source_url&&<a href={source.source_url} target="_blank" rel="noreferrer">[{source.id}] p.{value.source_page} ↗</a>}</span>})}</div>)}</section>)}</div>}</details>
-              {missingHistoricalInputs.length>0&&<section className="missing-financial-inputs" aria-labelledby="missing-financial-title"><div className="missing-financial-heading"><div><b id="missing-financial-title">Historical inputs missing</b><p>Missing figures stay unavailable; they are never treated as zero or a loss.</p></div><strong>{missingHistoricalInputs.length}</strong></div><div className="missing-financial-groups">{missingHistoricalGroups.map(group=><section className="missing-financial-period" key={group.period}><h4>{group.period}</h4><ul>{group.items.map(item=><li key={`${item.metric}-${item.period}`}><div><b>{item.metric.replaceAll('_',' ').toUpperCase()}</b><small>Needed for {item.comparison} comparison with {item.comparison_period}</small></div><button onClick={()=>{setFinancialEntryPeriod(item.period);requestAnimationFrame(()=>{const field=document.querySelector<HTMLInputElement>(`.financial-entry [name="${item.metric}"]`);field?.scrollIntoView({behavior:'smooth',block:'center'});field?.focus({preventScroll:true})})}}>Enter figure <ArrowRight size={13}/></button></li>)}</ul></section>)}</div></section>}
+              {missingHistoricalInputs.length>0&&<details className="missing-financial-inputs" aria-labelledby="missing-financial-title"><summary className="missing-financial-heading"><div><b id="missing-financial-title">Historical inputs missing</b><p>{missingHistoricalInputs.length} comparisons need cited figures. Missing values stay unavailable; they are never treated as zero or a loss.</p></div><strong>{missingHistoricalInputs.length}</strong></summary><div className="missing-financial-groups">{missingHistoricalGroups.map(group=><section className="missing-financial-period" key={group.period}><h4>{group.period}</h4><ul>{group.items.map(item=><li key={`${item.metric}-${item.period}`}><div><b>{item.metric.replaceAll('_',' ').toUpperCase()}</b><small>Needed for {item.comparison} comparison with {item.comparison_period}</small></div><button onClick={()=>{setFinancialEntryPeriod(item.period);requestAnimationFrame(()=>{const field=document.querySelector<HTMLInputElement>(`.financial-entry [name="${item.metric}"]`);field?.scrollIntoView({behavior:'smooth',block:'center'});field?.focus({preventScroll:true})})}}>Enter figure <ArrowRight size={13}/></button></li>)}</ul></section>)}</div></details>}
               <details className="financial-entry-disclosure"><summary>Add cited quarterly figures</summary><form className="financial-entry" onSubmit={saveQuarterlyFigures}><label>Fiscal quarter<input id="financial-period-input" name="period" value={financialEntryPeriod} onChange={event=>setFinancialEntryPeriod(event.target.value)} required pattern="FY20[0-9]{2}-Q[1-4]" placeholder="FY2026-Q2" title="Format: FY2026-Q2"/></label><label>Units<select name="unit"><option>₹ crore</option><option>₹ lakh</option><option>₹</option></select></label><label>Source page<input name="page" type="number" min="1" max={selectedDocument.pages} required placeholder="PDF page number"/></label><label>Revenue<input name="revenue" type="number" step="any" placeholder="As filed"/></label><label>EBITDA<input name="ebitda" type="number" step="any" placeholder="As filed"/></label><label>PBT<input name="pbt" type="number" step="any" placeholder="As filed"/></label><label>PAT<input name="pat" type="number" step="any" placeholder="As filed"/></label><label>O2C EBITDA<input name="o2c_ebitda" type="number" step="any" placeholder="Optional segment value"/></label><label className="financial-excerpt">Supporting passage<input name="excerpt" required minLength={10} maxLength={1200} placeholder="Copy the relevant financial-results statement/table text"/></label><button type="submit">Save cited figures</button></form></details>
               {financialMessage&&<p className="workflow-message">{financialMessage}</p>}
               {financialPeriods.length>1&&<div className="financial-chart-card"><div className="section-heading"><div><h4>Quarterly trend</h4><p>{financialChartMetric.toUpperCase()} · {statementBasis} · {figureType}</p></div><div className="financial-chart-controls"><select aria-label="Chart metric" value={financialChartMetric} onChange={event=>setFinancialChartMetric(event.target.value)}>{['revenue','ebitda','pbt','pat','o2c_ebitda','ebitda_margin','pbt_margin','pat_margin'].map(metric=><option key={metric} value={metric}>{metric.toUpperCase()}</option>)}</select><button className={financialChartRange===4?'active':''} onClick={()=>setFinancialChartRange(4)}>4 quarters</button><button className={financialChartRange===8?'active':''} onClick={()=>setFinancialChartRange(8)}>8 quarters</button></div></div>{financialChartGeometry&&chartRows.length>1?<><svg viewBox="0 0 600 205" role="img" aria-label={`${financialChartMetric} values over ${chartRows.length} quarters`}><line x1="24" x2="576" y1={financialChartGeometry.zeroY} y2={financialChartGeometry.zeroY} className="financial-chart-zero"/><polyline points={financialChartGeometry.points} className="financial-chart-line" fill="none"/>{chartRows.map((row,index)=>{const values=chartRows.map(point=>point.value as number);const min=Math.min(0,...values),max=Math.max(0,...values),span=max-min||1;const cx=24+index*552/(chartRows.length-1),cy=166-((row.value as number)-min)*132/span;return <g key={row.period}><circle cx={cx} cy={cy} r="4"/><text x={cx} y="194" textAnchor="middle">{row.period.replace('FY','').replace('-Q','·Q')}</text></g>})}</svg><small>{chartRows.length} quarters · {chartRows[0]?.unit} · margins shown in percentage; QoQ/YoY comparisons in percentage points</small></>:<div className="state-card">Add at least two quarters with {financialChartMetric.toUpperCase()} values to plot this trend.</div>}</div>}
               {financialPeriods.slice(0,8).map((period,index)=><details className="financial-period" key={period.period} open={index===0}><summary>{period.period}<small>QoQ and YoY use the same basis and figure presentation</small></summary><div className="financial-table"><div className="financial-row financial-header"><span>Metric</span><span>{figureType}</span><span>QoQ</span><span>YoY</span><span>Evidence</span></div>{Object.entries(period.metrics).map(([metric,data])=><div className="financial-row" key={metric}><b>{metric==='revenue'?'REVENUE':metric.toUpperCase()}</b><span>{data.value.toLocaleString('en-IN')} {data.unit}</span><span>{changeValue(data.qoq)}<small>{changeNote(data.qoq,data.unit)}</small></span><span>{changeValue(data.yoy)}<small>{changeNote(data.yoy,data.unit)}</small></span><details><summary>{data.calculated?'Calculated from cited figures · ':''}{data.source.filename} · PDF p.{data.source.page}</summary>{citationHref({...data.source,page:data.source.page})&&<a href={citationHref({...data.source,page:data.source.page})} target="_blank" rel="noreferrer">Open exact source page ↗</a>}{data.source.excerpt&&<blockquote>{data.source.excerpt}</blockquote>}{data.source.supporting_sources?.map((source,index)=><blockquote key={`${source.filename}-${index}`}>{source.filename} · p.{source.page}: {source.excerpt}{citationHref({...source,page:source.page})&&<> <a href={citationHref({...source,page:source.page})} target="_blank" rel="noreferrer">Open page ↗</a></>}</blockquote>)}</details></div>)}</div></details>)}
-              <details className="unified-evidence-ledger"><summary>Shared financial evidence ledger · {financialEvidence.length} records</summary><p>Financial comparisons, management guidance outcomes, and Bull vs Bear use these same source-linked records.</p>{financialEvidence.length?<div className="financial-evidence-list">{financialEvidence.map(item=><article key={item.id}><div><b>{item.evidence_kind==='management_guidance'?'Management guidance':'Reported financial evidence'} · {item.metric.replaceAll('_',' ')}</b><span>{item.period??item.target_period} · {item.statement_basis} · {item.figure_type}{item.adjustment_note?` · ${item.adjustment_note}`:''}</span><small>{item.evidence_kind==='management_guidance'?`Target ${item.target_value?.toLocaleString('en-IN')} ${item.unit} · “${item.quote}”`:`${item.value?.toLocaleString('en-IN')} ${item.unit}`}</small></div><a href={citationHref({...item.source,page:item.source.page})} target="_blank" rel="noreferrer">{item.source.filename} · p.{item.source.page} ↗</a></article>)}</div>:<div className="state-card">Saved figures and guidance passages will appear here as one source-linked evidence model.</div>}</details>
-              {financialPeriods.length===0&&<div className="state-card">No reported quarters saved for {selectedDocument.ticker}. Add figures from a quarterly-results filing to calculate comparisons.</div>}
+              <details className="unified-evidence-ledger"><summary>Shared financial evidence ledger · {researchDatasetLoading.evidence?'loading':researchDatasetErrors.evidence?'unavailable':`${financialEvidence.length} records`}</summary><p>Financial comparisons, management guidance outcomes, and Bull vs Bear use these same source-linked records.</p>{researchDatasetLoading.evidence?<div className="state-card" role="status">Loading cited records from FINN…</div>:researchDatasetErrors.evidence?<div className="state-card error-state" role="alert">The evidence ledger could not be loaded: {researchDatasetErrors.evidence}</div>:financialEvidence.length?<div className="financial-evidence-list">{financialEvidence.map(item=><article key={item.id}><div><b>{item.evidence_kind==='management_guidance'?'Management guidance':'Reported financial evidence'} · {item.metric.replaceAll('_',' ')}</b><span>{item.period??item.target_period} · {item.statement_basis} · {item.figure_type}{item.adjustment_note?` · ${item.adjustment_note}`:''}</span><small>{item.evidence_kind==='management_guidance'?`Target ${item.target_value?.toLocaleString('en-IN')} ${item.unit} · “${item.quote}”`:`${item.value?.toLocaleString('en-IN')} ${item.unit}`}</small></div><a href={citationHref({...item.source,page:item.source.page})} target="_blank" rel="noreferrer">{item.source.filename} · p.{item.source.page} ↗</a></article>)}</div>:<div className="state-card">No source-linked financial or management evidence is saved for this company yet.</div>}</details>
+              {!researchDatasetLoading.financials&&!researchDatasetErrors.financials&&financialPeriods.length===0&&<div className="state-card">No reported quarters are saved for {selectedDocument.ticker}. Add figures from an indexed quarterly-results filing to calculate comparisons.</div>}
             </div>
 
             <div className="research-subsection" hidden={researchTab!=='commitments'}><div className="section-heading"><div><h3>Management promise vs reality</h3><p>Log explicit guidance with its source passage, then compare it with the matching reported period.</p></div></div>
+              {researchDatasetLoading.commitments&&<div className="state-card" role="status">Loading company commitments from FINN…</div>}{researchDatasetErrors.commitments&&<div className="state-card error-state" role="alert">Management commitments could not be loaded: {researchDatasetErrors.commitments}</div>}
               <details className="promise-entry-disclosure"><summary>Log a management commitment</summary><form className="promise-entry" onSubmit={savePromise}><div className="promise-entry-groups"><section className="promise-entry-group"><h4>Commitment context</h4><div className="promise-entry-fields"><label>Guidance metric<select name="metric"><option value="revenue_growth_yoy">Revenue growth YoY</option><option value="revenue">Revenue</option><option value="ebitda">EBITDA</option><option value="ebitda_margin">EBITDA margin</option><option value="pbt">PBT</option><option value="pbt_margin">PBT margin</option><option value="pat">PAT</option><option value="pat_margin">PAT margin</option><option value="annualized_o2c_ebitda">O2C EBITDA, annualized from H1</option></select></label><label>Target quarter<input name="target_period" required pattern="FY20[0-9]{2}-Q[1-4]" placeholder="FY2027-Q1"/></label><label>Statement basis<select value={statementBasis} onChange={event=>setStatementBasis(event.target.value as 'consolidated'|'standalone')}><option value="consolidated">Consolidated</option><option value="standalone">Standalone</option></select></label><label>Figure type<select value={figureType} onChange={event=>setFigureType(event.target.value as 'reported'|'adjusted')}><option value="reported">Reported</option><option value="adjusted">Adjusted</option></select></label></div></section><section className="promise-entry-group"><h4>Guidance value and source</h4><div className="promise-entry-fields promise-value-fields"><label>Guidance value<input name="target_value" type="number" step="any" required placeholder="15"/></label><label>Unit<input name="unit" required placeholder="% or ₹ crore"/></label><label>Guidance page<input name="page" type="number" min="1" max={selectedDocument.pages} required placeholder="PDF page number"/></label></div></section></div><label className="promise-quote">Management’s exact guidance<input name="quote" required minLength={10} maxLength={1200} placeholder="Transcribe the commitment from the selected source"/></label><button type="submit">Track commitment / revision</button></form></details>
               {promiseMessage&&<p className="workflow-message">{promiseMessage}</p>}
               {promiseTrackRecord&&<div className="promise-track-record"><b>Historical guidance outcomes</b><span>{promiseTrackRecord.completed_count} completed guidance items · {promiseTrackRecord.achieved_count} achieved/exceeded · {promiseTrackRecord.missed_count} below</span>{promiseTrackRecord.achievement_rate_pct!==null&&<strong>{promiseTrackRecord.achievement_rate_pct}% achieved or exceeded</strong>}{promiseTrackRecord.mean_absolute_deviation_pct!==null&&<span>Mean absolute deviation from guidance: {promiseTrackRecord.mean_absolute_deviation_pct}%</span>}<small>{promiseTrackRecord.achievement_rate_pct===null?`At least ${promiseTrackRecord.minimum_sample} completed, current guidance items are needed for a rate.`:promiseTrackRecord.note}</small></div>}
-              {promiseRows.length>0?<div className="promise-list">{promiseRows.map(item=>{const actualText=item.actual_value===null?((({pending:'Reporting period is not complete',actual_missing:'Period ended · add the actual figure',not_comparable:'A matching basis, presentation, or unit is not available'} as Record<string,string>)[item.status])??'Awaiting comparable reported figures'):`${item.actual_value.toLocaleString('en-IN')} ${item.actual_unit??item.unit}`;return <article className="promise-card" key={item.id}><div className="promise-card-head"><b>{labelCategory(item.metric)} · {item.target_period} · v{item.revision??1}</b><span className={`promise-status ${item.is_current_guidance?item.status:'superseded-guidance'}`}>{item.is_current_guidance?promiseStatusLabel(item.status):'revised guidance'}</span></div><div className="promise-comparison"><div><small>Management guidance</small><strong>{item.target_value.toLocaleString('en-IN')} {item.unit}</strong><span>{item.statement_basis??'consolidated'} · {item.figure_type??'reported'}{item.adjustment_note?` · ${item.adjustment_note}`:''}</span></div><div><small>Reported actual</small><strong>{actualText}</strong></div>{item.deviation!==null&&<div className="promise-difference"><small>Difference</small><strong>{item.deviation>0?'+':''}{item.deviation.toFixed(2)} {item.actual_unit??item.unit}</strong></div>}</div><blockquote>“{item.quote}”</blockquote>{item.metric==='annualized_o2c_ebitda'&&<p className="promise-qualification">Annualized H1 run-rate estimate: 2 × (Q1 plus Q2 O2C EBITDA). This is not a full-year forecast.</p>}<div className="promise-evidence"><b>Evidence</b><div><span>Guidance</span>{citationHref({...item.source,page:item.source.page})&&<a href={citationHref({...item.source,page:item.source.page})} target="_blank" rel="noreferrer">{item.source.filename} · PDF p.{item.source.page} ↗</a>}</div>{item.actual_sources.map((source,index)=><div key={`${source.filename}-${index}`}><span>Actual</span>{citationHref({...source,page:source.page})&&<a href={citationHref({...source,page:source.page})} target="_blank" rel="noreferrer">{source.filename} · PDF p.{source.page} ↗</a>}</div>)}</div></article>})}</div>:<div className="state-card">No management commitments logged yet. Outcomes are pending until the reporting period ends and comparable figures are available.</div>}
+              {promiseRows.length>0?<div className="promise-list">{promiseRows.map(item=>{const actualText=item.actual_value===null?((({pending:'Reporting period is not complete',actual_missing:'Period ended · add the actual figure',not_comparable:'A matching basis, presentation, or unit is not available'} as Record<string,string>)[item.status])??'Awaiting comparable reported figures'):`${item.actual_value.toLocaleString('en-IN')} ${item.actual_unit??item.unit}`;return <article className="promise-card" key={item.id}><div className="promise-card-head"><b>{labelCategory(item.metric)} · {item.target_period} · v{item.revision??1}</b><span className={`promise-status ${item.is_current_guidance?item.status:'superseded-guidance'}`}>{item.is_current_guidance?promiseStatusLabel(item.status):'revised guidance'}</span></div><div className="promise-comparison"><div><small>Management guidance</small><strong>{item.target_value.toLocaleString('en-IN')} {item.unit}</strong><span>{item.statement_basis??'consolidated'} · {item.figure_type??'reported'}{item.adjustment_note?` · ${item.adjustment_note}`:''}</span></div><div><small>Reported actual</small><strong>{actualText}</strong></div>{item.deviation!==null&&<div className="promise-difference"><small>Difference</small><strong>{item.deviation>0?'+':''}{item.deviation.toFixed(2)} {item.actual_unit??item.unit}</strong></div>}</div><blockquote>“{item.quote}”</blockquote>{item.metric==='annualized_o2c_ebitda'&&<p className="promise-qualification">Annualized H1 run-rate estimate: 2 × (Q1 plus Q2 O2C EBITDA). This is not a full-year forecast.</p>}<div className="promise-evidence"><b>Evidence</b><div><span>Guidance</span>{citationHref({...item.source,page:item.source.page})&&<a href={citationHref({...item.source,page:item.source.page})} target="_blank" rel="noreferrer">{item.source.filename} · PDF p.{item.source.page} ↗</a>}</div>{item.actual_sources.map((source,index)=><div key={`${source.filename}-${index}`}><span>Actual</span>{citationHref({...source,page:source.page})&&<a href={citationHref({...source,page:source.page})} target="_blank" rel="noreferrer">{source.filename} · PDF p.{source.page} ↗</a>}</div>)}</div></article>})}</div>:!researchDatasetLoading.commitments&&!researchDatasetErrors.commitments?<div className="state-card">No management commitments logged yet. Outcomes are pending until the reporting period ends and comparable figures are available.</div>:null}
             </div>
 
             <div className="research-subsection" hidden={researchTab!=='analysis'}><div className="section-heading"><div><h3>Bull vs bear</h3><p>Build a balanced view from the uploaded annual reports, results, and concall transcripts.</p></div><button className="link-button" onClick={()=>void buildBullBear()} disabled={bullBearBusy}>{bullBearBusy?'Retrieving evidence…':'Build analysis'} <ArrowRight size={14}/></button></div>

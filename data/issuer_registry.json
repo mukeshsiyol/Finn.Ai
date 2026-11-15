@@ -46,6 +46,29 @@
           "source_url": "https://www.titancompany.in/investors/investor-relations"
         }
       ]
+    },
+    {
+      "issuer_id": "research:bajajfinance",
+      "research_only_name": "Bajaj Finance",
+      "canonical_name": "Bajaj Finance Limited",
+      "aliases": ["Bajaj Finance"],
+      "nse_symbol": {
+        "value": "BAJFINANCE",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_NBFC_INDAS_154457_29042026224724_iXBRL_WEB.html"
+      },
+      "bse_scrip_code": {
+        "value": "500034",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_NBFC_INDAS_154457_29042026224724_iXBRL_WEB.html"
+      },
+      "official_ir_domains": [
+        {
+          "domain": "bajajfinserv.in",
+          "status": "verified",
+          "source_url": "https://www.bajajfinserv.in/finance-investor-relations-annual-reports"
+        }
+      ]
     }
   ]
 }

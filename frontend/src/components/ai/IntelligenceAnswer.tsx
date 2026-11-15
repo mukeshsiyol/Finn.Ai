@@ -2,13 +2,18 @@ import type { IntelligenceResponse } from '../../services/aiApi'
 
 export function IntelligenceAnswer({ result }: { result: IntelligenceResponse }) {
   const failures = result.verification?.failures ?? []
+  const renderInline = (line: string, key: number) => line.split(/(\*\*[^*]+\*\*|\[[A-Z][A-Z0-9_-]{0,15}\])/g).map((part, index) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={`${key}-strong-${index}`}>{part.slice(2, -2)}</strong>
+    const citation = part.match(/^\[([A-Z][A-Z0-9_-]{0,15})\]$/)
+    if (!citation) return part
+    const id = citation[1]
+    const source = result.sources.find(item => item.id === id)
+    return source?.source_url ? <a className="ai-inline-citation" key={`${key}-${id}-${index}`} href={source.source_url} target="_blank" rel="noreferrer" aria-label={`Open ${source.label}`}>[{id}]</a> : source ? <span className="ai-inline-citation" key={`${key}-${id}-${index}`} title={`${source.label} · details below`}>[{id}]</span> : <span className="ai-citation-unverified" key={`${key}-${id}-${index}`}>[{id}]</span>
+  })
   const renderLine = (line: string, key: number) => {
-    const parts = line.split(/\[([A-Z][A-Z0-9_-]{0,15})\]/g)
-    return <p key={key}>{parts.map((part, index) => {
-      if (index % 2 === 0) return part
-      const source = result.sources.find(item => item.id === part)
-      return source?.source_url ? <a className="ai-inline-citation" key={`${key}-${part}-${index}`} href={source.source_url} target="_blank" rel="noreferrer" aria-label={`Open ${source.label}`}>[{part}]</a> : source ? <span className="ai-inline-citation" key={`${key}-${part}-${index}`} title={`${source.label} · details below`}>[{part}]</span> : <span className="ai-citation-unverified" key={`${key}-${part}-${index}`}>[{part}]</span>
-    })}</p>
+    if (line.startsWith('### ')) return <h4 key={key}>{renderInline(line.slice(4), key)}</h4>
+    if (line.startsWith('- ')) return <p className="answer-bullet" key={key}><span aria-hidden="true">•</span><span className="answer-bullet-text">{renderInline(line.slice(2), key)}</span></p>
+    return <p key={key}>{renderInline(line, key)}</p>
   }
   return <div className="intelligence-result">
     <div className="answer-heading"><b>{result.ai_generated?'FINN interpretation':result.mode==='evidence_only'?'Evidence and limitations':'FINN summary'}</b></div>

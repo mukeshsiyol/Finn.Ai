@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from threading import Lock
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
@@ -23,6 +24,7 @@ from app.services.announcements.nse_client import fetch_portfolio_announcements
 from app.services.announcements.processor import classify_announcement, explain_with_rules
 from app.services.intelligence.openai_service import ai_is_enabled, ai_provider_name, generate_text
 from app.services.intelligence.orchestrator import interpret_evidence
+from app.services.intelligence.briefing_store import latest_briefing, save_briefing
 from app.services.research.documents import STOPWORDS, WORD_RE, add_pdf, list_documents, remove_document, reindex_document, retrieve_pages, retrieve_ticker_pages, UPLOADS_DIR, validate_page_excerpt
 from app.services.research.engine import synthesize_research_answer, verify_generated_claims as _verify_generated_claims
 from app.services.research.financials import add_promise, add_quarter, document_dependencies, list_financial_evidence, list_promises, quarterly_comparisons, remove_document_records
@@ -53,6 +55,7 @@ app.include_router(import_router)
 PORTFOLIO_PATH = ROOT / "data" / "portfolio.json"
 SETTINGS_PATH = ROOT / "data" / "alert_settings.json"
 ALERT_HISTORY_PATH = ROOT / "data" / "alert_history.json"
+BRIEFINGS_PATH = ROOT / "data" / "intelligence_briefings.json"
 _snapshot_cache: dict = {"expires_at": 0.0, "payload": None}
 _history_cache: dict = {"expires_at": 0.0, "key": None, "payload": None}
 _cache_lock = Lock()
@@ -199,6 +202,13 @@ class IntelligenceBriefingRequest(BaseModel):
     companies: list[BriefingCompany] = Field(max_length=20)
     window_hours: int = Field(default=24, ge=1, le=168)
 
+    @model_validator(mode="after")
+    def unique_tickers(self):
+        tickers = [company.ticker.upper() for company in self.companies]
+        if len(set(tickers)) != len(tickers):
+            raise ValueError("Tracked companies must have distinct tickers.")
+        return self
+
 
 class ResearchCompareRequest(BaseModel):
     tickers: list[str] = Field(min_length=2, max_length=4)
@@ -283,11 +293,63 @@ def _upsert_alert_history(incoming: list[dict]) -> None:
                 continue
             prior = by_id.get(alert_id)
             by_id[alert_id] = {**(prior or {}), **event, "is_read": bool(prior.get("is_read")) if prior else False, "first_seen_at": prior.get("first_seen_at", now) if prior else now}
-        ordered = sorted(by_id.values(), key=lambda row: str(row.get("event_at", "")), reverse=True)[:2000]
+        ordered = sorted(by_id.values(), key=lambda row: _alert_event_datetime(row.get("event_at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)[:2000]
         ALERT_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
         temporary_path = ALERT_HISTORY_PATH.with_suffix(".tmp")
         temporary_path.write_text(json.dumps(ordered, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary_path.replace(ALERT_HISTORY_PATH)
+
+
+def _alert_event_datetime(value: object) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    # Existing records without an offset were written as UTC. Keep that established
+    # interpretation; new producers write explicit offsets.
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def _alerts_in_window(events: list[dict], window_hours: int, now: datetime | None = None) -> list[dict]:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    cutoff = current - timedelta(hours=window_hours)
+    selected = []
+    for event in events:
+        event_time = _alert_event_datetime(event.get("event_at"))
+        if event_time is not None and cutoff <= event_time <= current:
+            selected.append(event)
+    return sorted(selected, key=lambda event: _alert_event_datetime(event.get("event_at")) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+
+def _alert_summary(events: list[dict], window_hours: int, now: datetime | None = None) -> dict:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    selected = _alerts_in_window(events, window_hours, current)
+    unread = [event for event in selected if not event.get("is_read", False)]
+    trend_start = current.astimezone(ZoneInfo("Asia/Kolkata")).date() - timedelta(days=6)
+    trend = { (trend_start + timedelta(days=index)).isoformat(): 0 for index in range(7) }
+    categories = {"filings": 0, "price_movement": 0, "volume_spike": 0}
+    for event in events:
+        event_time = _alert_event_datetime(event.get("event_at"))
+        if event_time and event_time <= current:
+            day = event_time.astimezone(ZoneInfo("Asia/Kolkata")).date().isoformat()
+            if day in trend:
+                trend[day] += 1
+    for event in selected:
+        category = "filings" if event.get("kind") == "filing" else str(event.get("signal_type") or event.get("category") or "")
+        if category in categories:
+            categories[category] += 1
+    return {
+        "window_hours": window_hours,
+        "total": len(selected),
+        "unread": len(unread),
+        "high_priority": sum(event.get("priority") == "high" for event in selected),
+        "filings": categories["filings"],
+        "price_movements": categories["price_movement"],
+        "volume_spikes": categories["volume_spike"],
+        "trend_7d_ist": [{"date": day, "count": count} for day, count in trend.items()],
+        "category_counts": categories,
+        "computed_at": current.isoformat(),
+    }
 
 
 def _market_alert_events(companies: list[dict]) -> list[dict]:
@@ -336,7 +398,7 @@ def _market_snapshot(company: dict, settings: dict) -> dict:
         history = yf.Ticker(ticker).history(period="2mo", interval="1d", auto_adjust=False)
         if not history.empty:
             # Yahoo can occasionally return an invalid weekend daily bar; NSE does not trade on weekends.
-            history = history[history.index.dayofweek < 5]
+            history = history[history.index.day_of_week < 5]
         india_now = datetime.now(ZoneInfo("Asia/Kolkata"))
         session_is_open = india_now.weekday() < 5 and time(9, 15) <= india_now.time().replace(tzinfo=None) < time(15, 30)
         if not history.empty and session_is_open and history.index[-1].date() == india_now.date():
@@ -539,22 +601,30 @@ def portfolio_fundamentals(ticker: str = Query(min_length=4, max_length=20, patt
 
 @app.get("/api/alerts/history")
 def alert_history(window_hours: int = Query(default=720, ge=1, le=8760)) -> dict:
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
     with _alert_history_lock:
         events = _read_alert_history()
-    visible = []
-    for event in events:
-        try:
-            event_time = datetime.fromisoformat(str(event.get("event_at", "")).replace("Z", "+00:00"))
-            if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-        if event_time.astimezone(timezone.utc) >= cutoff:
-            visible.append(event)
-    visible.sort(key=lambda event: str(event.get("event_at", "")), reverse=True)
+    visible = _alerts_in_window(events, window_hours)
+    summary = _alert_summary(events, window_hours)
     cached_payload = _snapshot_cache.get("payload")
-    return {"alerts": visible, "window_hours": window_hours, "last_successful_market_update": cached_payload.get("last_successful_update") if cached_payload else None}
+    return {"alerts": visible, "window_hours": window_hours, "total_count": len(visible), "unread_count": summary["unread"], "all_unread_count": sum(not event.get("is_read", False) for event in events), "summary": summary, "last_successful_market_update": cached_payload.get("last_successful_update") if cached_payload else None}
+
+
+@app.get("/api/alerts/summary")
+def alert_summary(window_hours: int = Query(default=24, ge=1, le=720)) -> dict:
+    with _alert_history_lock:
+        events = _read_alert_history()
+    result = _alert_summary(events, window_hours)
+    cached_payload = _snapshot_cache.get("payload")
+    available = [company for company in cached_payload.get("companies", []) if company.get("market_status") == "available"] if cached_payload else []
+    result["coverage"] = {
+        "market_source": cached_payload.get("source") if cached_payload else None,
+        "last_successful_market_update": cached_payload.get("last_successful_update") if cached_payload else None,
+        "latest_completed_session": max((company.get("session_date") for company in available if company.get("session_date")), default=None),
+        "market_companies_available": len(available),
+        "market_companies_total": len(cached_payload.get("companies", [])) if cached_payload else None,
+        "market_status": "available" if available else "not_loaded" if not cached_payload else "unavailable",
+    }
+    return result
 
 
 @app.put("/api/alerts/read")
@@ -737,18 +807,92 @@ def portfolio_intelligence(request: PortfolioIntelligenceRequest) -> dict:
     return {**synthesis, "interpretation": synthesis["answer"] if synthesis["ai_generated"] else None, "facts": [source["excerpt"] for source in sources[1:]], "calculations": calculations, "uncertainties": uncertainties, "sources": sources, "as_of_date": request.as_of_date, "coverage": {"priced_holdings": request.priced_holding_count, "total_holdings": request.total_holding_count}, "retention": "request_not_persisted"}
 
 
+def _official_exchange_source(url: str | None, exchange: str) -> bool:
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        suffixes = ("nseindia.com", "nseindia.in") if exchange == "NSE" else ("bseindia.com",)
+        return parsed.scheme == "https" and bool(host) and any(host == suffix or host.endswith("." + suffix) for suffix in suffixes)
+    except ValueError:
+        return False
+
+
+def _briefing_financial_results(companies: list[dict]) -> list[dict]:
+    results = []
+    for company in companies:
+        symbol = company["ticker"].removesuffix(".NS").removesuffix(".BO").upper()
+        try:
+            report = quarterly_comparisons(symbol, "consolidated", "reported", "")
+        except Exception:
+            logger.exception("Saved quarterly evidence unavailable for %s", symbol)
+            continue
+        periods = report.get("periods", [])
+        if not periods:
+            continue
+        current = periods[0]
+        metrics = {}
+        for metric in ("revenue", "ebitda", "pbt", "pat"):
+            item = current.get("metrics", {}).get(metric)
+            if not item:
+                continue
+            source = item.get("source") or {}
+            # Research figures are manually captured, page-checked records. The
+            # excerpt must contain the saved number before Home exposes it.
+            excerpt_numbers = {value.replace(",", "") for value in re.findall(r"(?<![\d.])(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?", str(source.get("excerpt", "")))}
+            normalized_value = f"{float(item['value']):g}"
+            if normalized_value not in excerpt_numbers and normalized_value.removesuffix(".0") not in excerpt_numbers:
+                continue
+            metrics[metric] = item
+        if not metrics:
+            continue
+        results.append({
+            "company": company["name"], "ticker": company["ticker"], "period": current["period"],
+            "statement_basis": report.get("statement_basis", "consolidated"), "figure_type": report.get("figure_type", "reported"),
+            "metrics": metrics, "source_status": "saved_page_checked",
+            "note": "Figures were manually captured in Research and their cited page excerpt was checked. Review the PDF before relying on them.",
+        })
+    return results
+
+
+def _briefing_market_rows(companies: list[dict], cached_rows: list[dict], settings: dict) -> list[dict]:
+    """Reuse the portfolio snapshot and fetch only issuers outside its universe."""
+    cached_by_ticker = {str(row.get("ticker", "")).upper(): row for row in cached_rows}
+    uncached = [company for company in companies if company["ticker"] not in cached_by_ticker]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        fetched_rows = {company["ticker"]: row for company, row in zip(uncached, pool.map(lambda company: _market_snapshot(company, settings), uncached))}
+    return [cached_by_ticker.get(company["ticker"]) or fetched_rows[company["ticker"]] for company in companies]
+
+
+@app.get("/api/intelligence/briefing")
+def latest_intelligence_briefing(tickers: str = Query(min_length=1, max_length=1000), window_hours: int = Query(default=24, ge=1, le=168)) -> dict:
+    requested = list(dict.fromkeys(value.strip().upper() for value in tickers.split(",") if value.strip()))
+    if not requested or len(requested) > 20 or any(not re.fullmatch(r"[A-Z0-9&.-]{1,15}\.(?:NS|BO)", ticker) for ticker in requested):
+        raise HTTPException(status_code=422, detail="Request up to 20 tracked Indian exchange tickers.")
+    briefing = latest_briefing(BRIEFINGS_PATH, requested, window_hours)
+    return {"exists": bool(briefing), "briefing": briefing, "window_hours": window_hours, "tracked_tickers": requested, "reason": None if briefing else "No saved briefing exists for this tracked-company set and reporting window yet."}
+
+
 @app.post("/api/intelligence/briefing")
 def intelligence_briefing(request: IntelligenceBriefingRequest) -> dict:
-    selected = list({company.ticker.upper(): company for company in request.companies}.values())
+    selected = list(request.companies)
     universe = {company["ticker"].upper(): company for company in _company_universe()["companies"]}
     companies = [{"name": universe.get(item.ticker.upper(), {}).get("name", item.company), "ticker": item.ticker.upper(), "sector": universe.get(item.ticker.upper(), {}).get("sector", item.sector)} for item in selected]
+    generated_at = datetime.now(timezone.utc).isoformat()
+    now_local = datetime.now(ZoneInfo("Asia/Kolkata"))
+    period_start = now_local - timedelta(hours=request.window_hours)
     settings = _get_settings()
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        market_rows = list(pool.map(lambda company: _market_snapshot(company, settings), companies))
+    # Reuse the application's existing snapshot cache. Only custom tracked
+    # issuers that are not in the portfolio universe need an individual fetch.
+    cached_market_rows = _portfolio_snapshot().get("companies", []) if companies else []
+    market_rows = _briefing_market_rows(companies, cached_market_rows, settings)
 
     facts: list[str] = []
     sources: list[dict] = []
+    developments: list[dict] = []
     market_coverage = sum(row.get("market_status") == "available" for row in market_rows)
+    latest_session = max((row.get("session_date") for row in market_rows if row.get("session_date")), default=None)
     for row in market_rows:
         triggered = []
         if row.get("unusual_price"):
@@ -759,52 +903,92 @@ def intelligence_briefing(request: IntelligenceBriefingRequest) -> dict:
             continue
         bits = [f"{row['name']} ({row['ticker']}) triggered {', '.join(triggered)} on completed session {row.get('session_date')}."]
         if row.get("change_pct") is not None:
-            bits.append(f"Close move {row['change_pct']:+.2f}% against ±{row['price_threshold_pct']:.2f}% threshold.")
+            bits.append(f"Close move {row['change_pct']:+.2f}% versus previous close ₹{row.get('previous_close')}; configured threshold ±{row['price_threshold_pct']:.2f}%.")
         if row.get("volume_ratio_20d") is not None:
-            bits.append(f"Volume {row['volume_ratio_20d']:.2f}× against {row['volume_threshold']:.2f}× threshold.")
+            bits.append(f"Volume {row['volume_ratio_20d']:.2f}× the previous 20 completed sessions' average; configured threshold {row['volume_threshold']:.2f}×.")
         fact = " ".join(bits)
-        source = {"id": f"I{len(sources) + 1}", "label": f"Yahoo Finance completed-session quote · {row['name']}", "source_date": row.get("session_date"), "source_url": f"https://finance.yahoo.com/quote/{row['ticker']}", "excerpt": fact}
+        source_url = f"https://finance.yahoo.com/quote/{row['ticker']}"
+        source = {"id": f"M{sum(item['id'].startswith('M') for item in sources) + 1}", "label": f"Yahoo Finance completed-session quote · {row['name']}", "source_date": row.get("session_date"), "source_url": source_url, "excerpt": fact}
         sources.append(source)
         facts.append(fact)
+        developments.append({"id": f"market-{row['ticker']}-{row.get('session_date')}", "kind": "market", "ticker": row["ticker"], "company": row["name"], "category": "price_movement" if "price movement" in triggered else "volume_spike", "signal_types": triggered, "event_at": f"{row.get('session_date')}T15:30:00+05:30", "session_date": row.get("session_date"), "priority": "high" if row.get("unusual_price") else "medium", "importance": 85 if row.get("unusual_price") else 65, "summary": " ".join(bits), "why_it_may_matter": "An unusual completed-session move or volume can warrant review. It does not establish a cause.", "price_change_pct": row.get("change_pct"), "volume_ratio_20d": row.get("volume_ratio_20d"), "price_threshold_pct": row.get("price_threshold_pct"), "volume_threshold": row.get("volume_threshold"), "source_name": row.get("source_name"), "source_url": source_url, "source_verification": "market_data_provider"})
 
     filing_error = None
+    filing_checked_at = None
     filings = []
     try:
         if companies:
             filings = fetch_portfolio_announcements(companies, request.window_hours)
-    except Exception as exc:
+            filing_checked_at = datetime.now(timezone.utc).isoformat()
+    except Exception:
         logger.exception("Could not load NSE filings for the requested intelligence briefing.")
         filing_error = "NSE filing feed unavailable"
-    for filing in filings[:12]:
-        category = classify_announcement(filing["subject"], filing.get("details", ""))["category"]
+    deduped_filings = []
+    seen_filings = set()
+    for filing in filings:
+        stable_id = str(filing.get("id") or "")
+        dedupe_key = stable_id or "|".join((filing.get("ticker", ""), filing.get("filed_at", ""), re.sub(r"\W+", " ", filing.get("subject", "").lower()).strip()))
+        if dedupe_key in seen_filings:
+            continue
+        seen_filings.add(dedupe_key)
+        deduped_filings.append(filing)
+    for filing in deduped_filings:
+        classification = classify_announcement(filing["subject"], filing.get("details", ""))
+        category = classification["category"]
         fact = f"{filing['company']} ({filing['ticker']}) filed on NSE at {filing['filed_at']}: {filing['subject']}. Category: {category}. Details: {filing.get('details', '')}"
-        source = {"id": f"F{sum(1 for entry in sources if entry['id'].startswith('F')) + 1}", "label": "NSE corporate filing", "source_date": filing["filed_at"], "source_url": filing["source_url"], "excerpt": fact}
+        source_url = filing.get("source_url")
+        source_id = f"F{sum(entry['id'].startswith('F') for entry in sources) + 1}"
+        source = {"id": source_id, "label": "NSE corporate filing", "source_date": filing["filed_at"], "source_url": source_url, "excerpt": fact}
         sources.append(source)
         facts.append(fact)
+        developments.append({"id": str(filing["id"]), "kind": "filing", "ticker": filing["ticker"], "company": filing["company"], "category": category, "event_at": filing["filed_at"], "filed_at": filing["filed_at"], "priority": classification["priority"], "importance": classification["importance"], "summary": filing["subject"], "details": filing.get("details", ""), "why_it_may_matter": explain_with_rules(filing["company"], category, filing["subject"], filing.get("details", "")), "source_name": filing.get("source_name", "NSE corporate announcement"), "source_url": source_url, "source_page_url": filing.get("source_page_url", "https://www.nseindia.com/companies-listing/corporate-filings-announcements"), "document_url": filing.get("document_url"), "source_verification": "verified" if _official_exchange_source(source_url, "NSE") else "unverified", "source_id": source_id, "is_verified_example": bool(filing.get("is_verified_example"))})
 
-    coverage = {"market_available": market_coverage, "companies_requested": len(companies), "filings_available": filing_error is None, "filings_found": len(filings), "window_hours": request.window_hours}
+    market_errors = [row for row in market_rows if row.get("market_status") != "available"]
+    filing_developments = [item for item in developments if item.get("kind") == "filing"]
+    for item in developments:
+        if item.get("kind") != "market":
+            continue
+        item["same_window_filings"] = [{"id": filing["id"], "subject": filing["summary"], "filed_at": filing["filed_at"], "source_url": filing.get("source_url")} for filing in filing_developments if filing.get("ticker") == item.get("ticker")]
+    market_signals = sum(item["kind"] == "market" for item in developments)
+    material_count = sum(item["priority"] in {"high", "medium"} for item in developments)
+    financial_results = _briefing_financial_results(companies)
+    developments.sort(key=lambda item: (item.get("importance", 0), item.get("event_at", "")), reverse=True)
+    successful_refreshes = [row.get("checked_at") for row in market_rows if row.get("market_status") == "available" and row.get("checked_at")]
+    if filing_checked_at:
+        successful_refreshes.append(filing_checked_at)
+    coverage = {"market_available": market_coverage, "companies_requested": len(companies), "companies_covered": market_coverage, "announcements_reviewed": len(deduped_filings), "filings_available": filing_error is None, "filings_found": len(deduped_filings), "material_developments": material_count, "market_signals": market_signals, "latest_market_session": latest_session, "briefing_generated_at": generated_at, "last_successful_data_refresh": max(successful_refreshes, default=None), "window_hours": request.window_hours, "period_start": period_start.isoformat(), "period_end": now_local.isoformat()}
+    providers = {"market_data": {"status": "unavailable" if not market_rows or not market_coverage else "partial" if market_errors else "success", "source": "Yahoo Finance via yfinance", "checked_at": max((row.get("checked_at") for row in market_rows if row.get("market_status") == "available" and row.get("checked_at")), default=None), "available_companies": market_coverage, "requested_companies": len(companies), "errors": [{"ticker": row["ticker"], "reason": row.get("reason", "Quote unavailable")} for row in market_errors]}, "nse_filings": {"status": "error" if filing_error else "success" if deduped_filings else "empty", "source": "NSE corporate announcements", "checked_at": filing_checked_at, "records": len(deduped_filings), "error": filing_error}, "bse_filings": {"status": "unavailable", "source": "BSE public announcements", "error": "No permitted unauthenticated structured BSE feed is configured; no BSE coverage is claimed."}, "saved_quarterly_results": {"status": "success" if financial_results else "empty", "source": "Existing page-checked Research financial records", "companies": len(financial_results)}}
     if not selected:
-        return {"answer": "Track companies in the watchlist to build a source-backed daily briefing.", "mode": "evidence_only", "ai_generated": False, "facts": [], "calculations": [], "interpretation": None, "uncertainties": ["No tracked companies were submitted."], "sources": [], "coverage": coverage, "verification": {"status": "insufficient_scope", "failures": [], "note": "No tracked companies were submitted."}, "retention": "request_not_persisted"}
-    if not facts:
+        answer = "Track companies in the watchlist to build a source-backed daily briefing."
+        synthesis = {"answer": answer, "mode": "evidence_only", "ai_generated": False, "verification": {"status": "insufficient_scope", "failures": [], "note": "No tracked companies were submitted."}, "interpretation": None}
+    elif not facts:
         if filing_error or market_coverage < len(companies):
-            answer = f"No material event was confirmed in the available data. Market prices were available for {market_coverage} of {len(companies)} tracked companies."
+            answer = f"No material development was confirmed in checked data. Completed-session prices were available for {market_coverage} of {len(companies)} tracked companies."
             if filing_error:
-                answer += " The NSE filing feed was unavailable, so this briefing is incomplete."
+                answer += " The NSE filing feed failed, so this briefing is incomplete."
             if market_coverage < len(companies):
-                answer += " Missing company prices mean market signals could not be checked for every tracked company."
+                answer += " Missing prices mean market signals could not be checked for every company."
         else:
-            answer = f"No threshold-crossing market signal or NSE filing was found in the available {request.window_hours}-hour window. Market prices were available for all {market_coverage} tracked companies."
-        return {"answer": answer, "mode": "deterministic_no_events", "ai_generated": False, "facts": [], "calculations": [], "interpretation": None, "uncertainties": ["Feed and price coverage may be incomplete." ] if filing_error or market_coverage < len(companies) else [], "sources": [], "coverage": coverage, "verification": {"status": "not_applicable", "failures": [], "note": filing_error or "No material events were present in the data sources checked."}, "retention": "request_not_persisted"}
-    fallback = f"FINN found {len(facts)} dated tracked-company items. Market price coverage was {market_coverage}/{len(companies)}; open the source references to review each event."
-    if filing_error:
-        fallback += " NSE filings were unavailable; this briefing may be incomplete."
-    synthesis = interpret_evidence(capability="personalised investor briefing", task="Summarize the most relevant tracked-company developments, explain why they may matter, and identify limitations. Do not imply that an unusual market signal has a known cause.", facts=facts, sources=sources, fallback=fallback, max_tokens=360)
+            answer = f"No threshold-crossing market signal or NSE filing was found in the available {request.window_hours}-hour window. Completed-session prices were available for all {market_coverage} tracked companies."
+        synthesis = {"answer": answer, "mode": "deterministic_no_events", "ai_generated": False, "interpretation": None, "verification": {"status": "not_applicable", "failures": [], "note": filing_error or "No material events were present in the checked NSE and market sources."}}
+    else:
+        fallback = f"FINN found {len(facts)} dated tracked-company items. Completed-session quote coverage was {market_coverage}/{len(companies)}; review each original source below."
+        if filing_error:
+            fallback += " NSE filings were unavailable; this briefing is incomplete."
+        synthesis = interpret_evidence(capability="personalised investor briefing", task="Summarize the most relevant tracked-company developments, explain why they may matter, and identify limitations. Do not imply that a market signal has a known cause.", facts=facts, sources=sources, fallback=fallback, max_tokens=360)
+        synthesis["interpretation"] = synthesis["answer"] if synthesis.get("ai_generated") else None
     uncertainties = []
     if filing_error:
         uncertainties.append("The NSE filing feed was unavailable; this briefing is incomplete.")
     if market_coverage < len(companies):
-        uncertainties.append(f"Market quotes were available for {market_coverage} of {len(companies)} tracked companies.")
-    return {**synthesis, "interpretation": synthesis["answer"] if synthesis["ai_generated"] else None, "facts": facts, "calculations": [], "uncertainties": uncertainties, "sources": sources, "coverage": coverage, "retention": "request_not_persisted"}
+        uncertainties.append(f"Completed-session quotes were available for {market_coverage} of {len(companies)} tracked companies.")
+    uncertainties.append("BSE filings are not available from a configured permitted provider; the briefing is NSE-only for corporate filings.")
+    if financial_results:
+        uncertainties.append("Quarterly values shown below were entered in Research and checked against cited page excerpts; they were not automatically extracted or independently number-parsed.")
+    report = {**synthesis, "interpretation": synthesis.get("interpretation"), "facts": facts, "calculations": [], "uncertainties": uncertainties, "sources": sources, "coverage": coverage, "providers": providers, "developments": developments, "quarterly_results": financial_results, "window_hours": request.window_hours, "tracked_tickers": [company["ticker"] for company in companies], "briefing_id": uuid4().hex, "generated_at": generated_at, "retention": "persisted"}
+    if companies:
+        save_briefing(BRIEFINGS_PATH, report)
+    return report
 
 
 @app.post("/api/research/compare")

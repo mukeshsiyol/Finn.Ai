@@ -27,6 +27,18 @@ def test_exact_company_name_resolution(issuers):
     assert issuer.issuer_id == "RELIANCE.NS"
 
 
+def test_bajaj_finance_canonical_name_alias_and_verified_exchange_ids(issuers):
+    for query in ("Bajaj Finance Limited", "Bajaj Finance", "BAJFINANCE", "BAJFINANCE.NS", "500034"):
+        issuer = resolve_issuer(query, issuers)
+        assert issuer.issuer_id == "research:bajajfinance"
+        assert issuer.canonical_name == "Bajaj Finance Limited"
+    issuer = resolve_issuer("Bajaj Finance Limited", issuers)
+    assert issuer.nse_symbol.value == "BAJFINANCE"
+    assert issuer.nse_symbol.status == "verified"
+    assert issuer.bse_scrip_code.value == "500034"
+    assert issuer.bse_scrip_code.status == "verified"
+
+
 def test_alias_resolution(issuers):
     issuer = resolve_issuer("RIL", issuers)
     assert issuer.canonical_name == "Reliance Industries"

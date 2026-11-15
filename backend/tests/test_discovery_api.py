@@ -4,7 +4,9 @@ from pydantic import TypeAdapter, ValidationError
 
 from app.main import app
 from app.services.discovery import api as discovery_api
+from app.services.discovery.providers import DiscoveryProvider
 from app.services.discovery.schema import DocumentType
+from app.services.discovery.service import DiscoveryService
 
 
 class FakeDiscovery:
@@ -29,6 +31,33 @@ def test_discovery_api_unknown_issuer_maps_to_404(monkeypatch):
     with pytest.raises(HTTPException) as error:
         discovery_api.get_public_discovery("unknown-company", None, None)
     assert error.value.status_code == 404
+
+
+@pytest.mark.parametrize("company,issuer_id,canonical_name,nse_symbol", [
+    ("Bajaj Finance Limited", "research:bajajfinance", "Bajaj Finance Limited", "BAJFINANCE"),
+    ("Reliance Industries Limited", "RELIANCE.NS", "Reliance Industries", "RELIANCE"),
+])
+@pytest.mark.parametrize("period_label", [None, "FY2025"])
+def test_supported_company_discovery_returns_empty_result_not_unknown_issuer_404(monkeypatch, company, issuer_id, canonical_name, nse_symbol, period_label):
+    calls = []
+
+    class EmptyFixtureProvider(DiscoveryProvider):
+        provider_id = "fixture"
+
+        def discover(self, issuer, document_type, reporting_period=None):
+            calls.append((issuer.issuer_id, document_type, reporting_period.normalized_label if reporting_period else None))
+            return ()
+
+    monkeypatch.setattr(discovery_api, "_service", DiscoveryService((EmptyFixtureProvider(),)))
+    payload = discovery_api.get_public_discovery(company, None, period_label)
+
+    assert payload["issuer"]["issuer_id"] == issuer_id
+    assert payload["issuer"]["canonical_name"] == canonical_name
+    assert payload["issuer"]["nse_symbol"] == {"value": nse_symbol, "status": "verified"}
+    assert payload["candidates"] == []
+    assert payload["warnings"] == []
+    assert len(calls) == len(DocumentType)
+    assert {call[2] for call in calls} == {period_label}
 
 
 def test_discovery_api_invalid_filters_are_rejected_by_contract():

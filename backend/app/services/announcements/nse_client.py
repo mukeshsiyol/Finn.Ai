@@ -60,6 +60,8 @@ def fetch_portfolio_announcements(companies: list[dict], window_hours: int = 24)
             "details": details[:2000],
             "filed_at": filed_at.isoformat(),
             "source_url": attachment or ANNOUNCEMENTS_PAGE,
+            "source_page_url": ANNOUNCEMENTS_PAGE,
+            "document_url": attachment,
             "source_name": "NSE corporate announcement",
         })
     return sorted(results, key=lambda item: item["filed_at"], reverse=True)

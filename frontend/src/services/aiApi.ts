@@ -152,7 +152,29 @@ export type IntelligenceResponse = {
   sources: IntelligenceSource[]
   verification?: { status: string; failures: { type: string; citation_id?: string; claim?: string; reason: string }[]; note: string }
   coverage?: Record<string, string | number | boolean>
-  retention?: 'request_not_persisted'
+  retention?: 'request_not_persisted' | 'persisted'
+  briefing_id?: string
+  generated_at?: string
+  tracked_tickers?: string[]
+  window_hours?: number
+  developments?: BriefingDevelopment[]
+  quarterly_results?: BriefingQuarterlyResult[]
+  providers?: Record<string, { status: string; source?: string; error?: string | null; records?: number; available_companies?: number; requested_companies?: number; errors?: { ticker: string; reason: string }[] }>
+}
+
+export type BriefingDevelopment = {
+  id: string; kind: 'market' | 'filing'; ticker: string; company: string; category: string
+  event_at: string; filed_at?: string; session_date?: string; priority: string; importance: number
+  summary: string; details?: string; why_it_may_matter?: string; signal_types?: string[]
+  price_change_pct?: number | null; volume_ratio_20d?: number | null; price_threshold_pct?: number | null; volume_threshold?: number | null
+  source_name?: string; source_url?: string | null; source_page_url?: string | null; document_url?: string | null
+  source_verification?: string; source_id?: string
+  same_window_filings?: { id: string; subject: string; filed_at: string; source_url?: string | null }[]
+}
+
+export type BriefingQuarterlyResult = {
+  company: string; ticker: string; period: string; statement_basis: string; figure_type: string
+  metrics: Record<string, { value: number | null; unit?: string | null; qoq?: { status: string; change_pct: number | null; period: string }; yoy?: { status: string; change_pct: number | null; period: string }; source?: { document_id?: string; filename: string; page: number; excerpt?: string; source_url?: string } | null }>
 }
 
 export type ResearchComparisonResponse = IntelligenceResponse & {
@@ -300,9 +322,16 @@ export async function requestPortfolioIntelligence(input: PortfolioIntelligenceI
   return payload
 }
 
+export async function getDailyBriefing(tickers: string[], windowHours = 24): Promise<{ exists: boolean; briefing: IntelligenceResponse | null; reason?: string }> {
+  const query = new URLSearchParams({ tickers: tickers.join(','), window_hours: String(windowHours) })
+  const payload = await requestJson<{ exists: boolean; briefing: IntelligenceResponse | null; reason?: string }>(`/api/intelligence/briefing?${query}`)
+  if (typeof payload.exists !== 'boolean' || (payload.exists && (!payload.briefing || !Array.isArray(payload.briefing.sources)))) throw new Error('FINN received an incomplete saved briefing response.')
+  return payload
+}
+
 export async function requestDailyBriefing(companies: { ticker: string; company: string; sector: string }[], windowHours = 24): Promise<IntelligenceResponse> {
   const payload = await requestJson<IntelligenceResponse>('/api/intelligence/briefing', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ companies, window_hours: windowHours }) })
-  if (typeof payload.answer !== 'string' || !Array.isArray(payload.sources) || payload.retention !== 'request_not_persisted') throw new Error('FINN received an incomplete daily briefing response.')
+  if (typeof payload.answer !== 'string' || !Array.isArray(payload.sources) || payload.retention !== 'persisted' || !Array.isArray(payload.developments) || !payload.coverage || !payload.providers) throw new Error('FINN received an incomplete daily briefing response.')
   return payload
 }
 

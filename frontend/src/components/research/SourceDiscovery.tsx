@@ -12,6 +12,22 @@ const types: { value: DiscoveryCandidate['document_type'] | ''; label: string }[
 ]
 const activeStates = new Set(['pending', 'downloading', 'validating', 'extracting', 'indexing'])
 const label = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase())
+const isDirectPdf = (url: string | null) => {
+  if (!url) return false
+  try { return new URL(url).pathname.toLowerCase().endsWith('.pdf') } catch { return false }
+}
+
+function summarizeProvider(results: DiscoveryResponse['providers'], providerId: string) {
+  const rows = results.filter(item => item.provider_id === providerId)
+  const counts = rows.reduce<Record<string, number>>((all, item) => {
+    const isCoverageGap = item.status === 'error' && /no verified|not configured|not confirmed|not established|skipped/i.test(item.message || '')
+    const status = isCoverageGap ? 'coverage gaps' : item.status
+    all[status] = (all[status] ?? 0) + 1
+    return all
+  }, {})
+  const summary = Object.entries(counts).map(([status, count]) => `${count} ${label(status)}`).join(' · ')
+  return { rows, summary }
+}
 
 type Props = { onIndexed: (documentId: string) => void; initialCompany?: string }
 
@@ -25,6 +41,7 @@ export function SourceDiscovery({ onIndexed, initialCompany = '' }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const searchInFlight = useRef(false)
   const indexedRef = useRef(new Set<string>())
   const seenActiveRef = useRef(new Set<string>())
 
@@ -55,18 +72,26 @@ export function SourceDiscovery({ onIndexed, initialCompany = '' }: Props) {
   }, [polling, response?.issuer.issuer_id])
 
   const importByCandidate = useMemo(() => new Map(jobs.map(job => [job.candidate_id, job])), [jobs])
+  const groupedWarnings = useMemo(() => {
+    if (!response) return []
+    const counts = new Map<string, number>()
+    for (const warning of response.warnings) counts.set(warning, (counts.get(warning) ?? 0) + 1)
+    return [...counts.entries()].map(([message, count]) => ({ message, count }))
+  }, [response])
 
   async function search(event: FormEvent) {
     event.preventDefault()
-    if (!company.trim()) return
+    if (!company.trim() || searchInFlight.current) return
+    searchInFlight.current = true
     setLoading(true); setError(''); setNotice(''); setSelectedId(''); setResponse(null)
     try {
       const result = await discoverResearchDocuments(company, { document_type: documentType || undefined, reporting_period: period || undefined })
       setResponse(result)
-      setNotice(result.candidates.length ? `${result.candidates.length} candidate${result.candidates.length === 1 ? '' : 's'} returned by the available official sources.` : 'No matching documents were returned by the available sources.')
+      const failedProviders = result.providers.filter(provider => provider.status === 'error' || provider.status === 'timeout').length
+      setNotice(result.candidates.length ? `${result.candidates.length} candidate${result.candidates.length === 1 ? '' : 's'} returned by the available official sources.` : failedProviders ? 'No candidates returned. One or more providers failed; review provider status and warnings before treating this as complete coverage.' : 'No matching documents were returned by the available official sources.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Public-source discovery failed. Try again.')
-    } finally { setLoading(false) }
+    } finally { searchInFlight.current = false; setLoading(false) }
   }
 
   async function importSelected(candidate: DiscoveryCandidate) {
@@ -94,12 +119,10 @@ export function SourceDiscovery({ onIndexed, initialCompany = '' }: Props) {
     }
   }
 
-  const chosen = response?.candidates.find(candidate => candidate.candidate_id === selectedId)
-
   return <section className="source-discovery" aria-labelledby="source-discovery-title">
     <div className="source-discovery-intro">
       <div className="source-discovery-icon"><FileSearch size={19}/></div>
-      <div><span className="eyebrow-mini">OFFICIAL PUBLIC SOURCES</span><h3 id="source-discovery-title">Find company documents</h3><p>Search the issuer registry, then import only a document you explicitly select.</p></div>
+      <div><span className="eyebrow-mini">OFFICIAL PUBLIC SOURCES</span><h3 id="source-discovery-title">Find company documents</h3><p>Search verified exchange sources and configured company IR pages. Coverage varies by company; only verified PDF candidates can be imported.</p></div>
     </div>
     <form className="source-discovery-form" onSubmit={search}>
       <label className="discovery-company"><span>Company or verified ticker</span><span className="search-field"><Search size={15}/><input value={company} onChange={event => setCompany(event.target.value)} maxLength={160} required placeholder="e.g. Reliance Industries or RELIANCE.NS"/></span></label>
@@ -111,8 +134,17 @@ export function SourceDiscovery({ onIndexed, initialCompany = '' }: Props) {
     {notice && <p className="source-discovery-notice" role="status">{notice}</p>}
     {response && <>
       <div className="issuer-resolution"><div><ShieldCheck size={16}/><span><b>{response.issuer.canonical_name}</b><small>{response.issuer.issuer_id} · resolved from FINN's issuer registry</small></span></div><span>{new Date(response.discovered_at).toLocaleString('en-IN')}</span></div>
-      {response.warnings.length > 0 && <div className="provider-warnings" role="status"><b>Some sources were unavailable</b>{response.warnings.map((warning, index) => <span key={`${warning}-${index}`}>{warning}</span>)}</div>}
-      <div className="provider-status-list" aria-label="Source provider results">{response.providers.map((provider, index) => <span className={`provider-status provider-${provider.status}`} key={`${provider.provider_id}-${provider.document_type}-${index}`}><i/>{provider.provider_id.toUpperCase()} · {label(provider.document_type)} · {label(provider.status)}</span>)}</div>
+      {groupedWarnings.length > 0 && <div className="provider-warnings" role="status"><div><b>Source coverage notes</b><small>Some providers are not configured for this company or document type. These are coverage limits; they do not mean a document was found or downloaded.</small></div>{groupedWarnings.map(({ message, count }) => <span key={message}>{message}{count > 1 ? ` · applies to ${count} document types` : ''}</span>)}</div>}
+      <div className="provider-coverage-grid" aria-label="Source provider coverage">{['nse', 'bse', 'ir'].map(providerId => {
+        const { rows, summary } = summarizeProvider(response.providers, providerId)
+        if (!rows.length) return null
+        return <details className="provider-coverage" key={providerId}><summary><b>{providerId.toUpperCase()}</b><span>{summary}</span><span className="provider-coverage-count">{rows.length} checks</span></summary><div className="provider-status-list">{rows.map((provider, index) => {
+          const isCoverageGap = provider.status === 'error' && /no verified|not configured|not confirmed|not established|skipped/i.test(provider.message || '')
+          const displayStatus = isCoverageGap ? 'coverage gap' : provider.status
+          return <span className={`provider-status provider-${isCoverageGap ? 'gap' : provider.status}`} key={`${provider.document_type}-${index}`} title={provider.message || undefined}><i/>{label(provider.document_type)} · {label(displayStatus)}</span>
+        })}</div></details>
+      })}</div>
+      {response.candidates.length === 0 && <div className="discovery-no-candidates"><div><b>No document candidates were returned</b><p>{response.providers.some(provider => provider.status === 'error' || provider.status === 'timeout') ? 'Some sources could not be searched, so this result does not establish that no documents exist.' : 'No matching documents were found in the sources available to FINN for this company and filter.'} You can still add an official PDF manually.</p></div><a href="#research-document-management">Open manual upload <ArrowRight size={14}/></a></div>}
       {response.candidates.length > 0 && <div className="discovery-candidate-list">{response.candidates.map(candidate => {
         const job = importByCandidate.get(candidate.candidate_id)
         const selected = selectedId === candidate.candidate_id
@@ -124,7 +156,7 @@ export function SourceDiscovery({ onIndexed, initialCompany = '' }: Props) {
             <span className={`verification-label ${candidate.verification_status}`}>{candidate.verification_status}</span>
             <ArrowRight size={16} className="candidate-chevron"/>
           </button>
-          {selected && <div className="candidate-details"><p>{candidate.document_url ? candidate.verification_status === 'verified' ? 'A verified direct PDF attachment is available for explicit import.' : 'A direct attachment is listed, but its source is not verified for secure import.' : 'This filing has a source listing but no direct PDF attachment, so FINN cannot import it automatically.'}</p><div className="candidate-links"><a href={candidate.source_page_url} target="_blank" rel="noreferrer">Open official listing <ExternalLink size={13}/></a>{candidate.document_url && <a href={candidate.document_url} target="_blank" rel="noreferrer">Review PDF <ExternalLink size={13}/></a>}</div>{candidate.document_url && candidate.verification_status === 'verified' && <button type="button" className="primary-button" disabled={loading || Boolean(job && activeStates.has(job.status))} onClick={() => void importSelected(candidate)}>{job?.status === 'ready' ? 'Already indexed' : job && activeStates.has(job.status) ? `${label(job.status)}…` : 'Import selected document'}<ArrowRight size={15}/></button>}</div>}
+          {selected && <div className="candidate-details"><p>{candidate.document_url ? !isDirectPdf(candidate.document_url) ? 'This source links to a non-PDF attachment. FINN’s current import workflow accepts PDF files only; open the source listing to inspect available formats.' : candidate.verification_status === 'verified' ? 'A verified direct PDF attachment is available. FINN will download it only after you choose Import.' : 'A direct PDF is listed, but its source is not verified for secure import.' : 'This filing has a source listing but no direct PDF attachment, so it cannot be imported through the current PDF workflow.'}</p><div className="candidate-links"><a href={candidate.source_page_url} target="_blank" rel="noreferrer">Open official listing <ExternalLink size={13}/></a>{candidate.document_url && <a href={candidate.document_url} target="_blank" rel="noreferrer">{isDirectPdf(candidate.document_url) ? 'Review PDF' : 'Open attachment'} <ExternalLink size={13}/></a>}</div>{candidate.document_url && isDirectPdf(candidate.document_url) && candidate.verification_status === 'verified' && <button type="button" className="primary-button" disabled={loading || Boolean(job && activeStates.has(job.status))} onClick={() => void importSelected(candidate)}>{job?.status === 'ready' ? 'Already indexed' : job && activeStates.has(job.status) ? `${label(job.status)}…` : 'Import selected PDF'}<ArrowRight size={15}/></button>}</div>}
         </article>
       })}</div>}
     </>}

@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -8,6 +10,7 @@ from app.main import app
 from app.services.intelligence.orchestrator import interpret_evidence
 from app.services.intelligence import openai_service
 from app.services.research import engine, documents
+from app.services.intelligence.briefing_store import latest_briefing, save_briefing
 
 
 class IntelligenceOrchestratorTests(unittest.TestCase):
@@ -94,12 +97,65 @@ class IntelligenceEndpointTests(unittest.TestCase):
     def test_empty_briefing_discloses_incomplete_market_coverage(self):
         company = {"ticker": "TEST.NS", "company": "Test Ltd", "sector": "Industrials"}
         snapshot = {"market_status": "unavailable", "name": "Test Ltd", "ticker": "TEST.NS"}
-        with patch("app.main._company_universe", return_value={"companies": []}), patch("app.main._market_snapshot", return_value=snapshot), patch("app.main.fetch_portfolio_announcements", side_effect=RuntimeError("feed down")):
+        with tempfile.TemporaryDirectory(dir="tmp") as directory, patch("app.main.BRIEFINGS_PATH", Path(directory) / "briefings.json"), patch("app.main._company_universe", return_value={"companies": []}), patch("app.main._portfolio_snapshot", return_value={"companies": []}), patch("app.main._market_snapshot", return_value=snapshot), patch("app.main.fetch_portfolio_announcements", side_effect=RuntimeError("feed down")), patch("app.main.interpret_evidence", return_value={"answer": "No qualifying event.", "mode": "evidence_only", "ai_generated": False, "verification": {"status": "not_applicable", "failures": [], "note": "No event."}}):
             response = self.client.post("/api/intelligence/briefing", json={"companies": [company]})
+            saved = self.client.get("/api/intelligence/briefing", params={"tickers": "TEST.NS", "window_hours": 24})
         self.assertEqual(response.status_code, 200)
         self.assertIn("briefing is incomplete", response.json()["answer"])
         self.assertIn("could not be checked", response.json()["answer"])
-        self.assertEqual(response.json()["retention"], "request_not_persisted")
+        self.assertEqual(response.json()["retention"], "persisted")
+        self.assertEqual(response.json()["providers"]["bse_filings"]["status"], "unavailable")
+        self.assertEqual(saved.status_code, 200)
+        self.assertTrue(saved.json()["exists"])
+        self.assertEqual(saved.json()["briefing"]["briefing_id"], response.json()["briefing_id"])
+
+    def test_briefing_persistence_filters_exact_company_set_and_window(self):
+        with tempfile.TemporaryDirectory(dir="tmp") as directory:
+            path = Path(directory) / "briefings.json"
+            save_briefing(path, {"briefing_id": "one", "generated_at": "2026-11-15T10:00:00+05:30", "tracked_tickers": ["TITAN.NS", "RELIANCE.NS"], "window_hours": 24})
+            self.assertEqual(latest_briefing(path, ["RELIANCE.NS", "TITAN.NS"], 24)["briefing_id"], "one")
+            self.assertIsNone(latest_briefing(path, ["RELIANCE.NS"], 24))
+            self.assertIsNone(latest_briefing(path, ["RELIANCE.NS", "TITAN.NS"], 48))
+
+    def test_briefing_get_rejects_unresolved_ticker_shape(self):
+        response = self.client.get("/api/intelligence/briefing", params={"tickers": "not-a-ticker"})
+        self.assertEqual(response.status_code, 422)
+
+    def test_briefing_saved_financials_require_value_in_cited_page_excerpt(self):
+        from app.main import _briefing_financial_results
+        evidence = {"document_id": "doc-1", "filename": "results.pdf", "page": 4, "excerpt": "Revenue of ₹1,000 crore and profit were reported."}
+        report = {"periods": [{"period": "FY2027-Q2", "metrics": {
+            "revenue": {"value": 1000, "unit": "₹ crore", "source": evidence, "qoq": {"status": "available", "change_pct": 2, "period": "FY2027-Q1"}, "yoy": {"status": "missing_data", "change_pct": None, "period": "FY2026-Q2"}},
+            "pat": {"value": 250, "unit": "₹ crore", "source": {**evidence, "excerpt": "PAT was 245 crore."}, "qoq": {"status": "missing_data", "change_pct": None, "period": "FY2027-Q1"}, "yoy": {"status": "missing_data", "change_pct": None, "period": "FY2026-Q2"}},
+        }}]}
+        with patch("app.main.quarterly_comparisons", return_value=report):
+            result = _briefing_financial_results([{"ticker": "RELIANCE.NS", "name": "Reliance Industries"}])
+        self.assertEqual(list(result[0]["metrics"]), ["revenue"])
+        self.assertEqual(result[0]["period"], "FY2027-Q2")
+        self.assertEqual(result[0]["metrics"]["revenue"]["qoq"]["change_pct"], 2)
+
+    def test_briefing_deduplicates_filings_and_keeps_source_provenance(self):
+        company = {"ticker": "TEST.NS", "company": "Test Ltd", "sector": "Industrials"}
+        row = {"id": "nse-1", "ticker": "TEST.NS", "company": "Test Ltd", "subject": "Quarterly financial results", "details": "Results for the quarter ended September.", "filed_at": "2026-11-15T09:00:00+05:30", "source_url": "https://www.nseindia.com/example.pdf", "source_name": "NSE filing"}
+        snapshot = {"market_status": "unavailable", "name": "Test Ltd", "ticker": "TEST.NS"}
+        with tempfile.TemporaryDirectory(dir="tmp") as directory, patch("app.main.BRIEFINGS_PATH", Path(directory) / "briefings.json"), patch("app.main._company_universe", return_value={"companies": []}), patch("app.main._portfolio_snapshot", return_value={"companies": []}), patch("app.main._market_snapshot", return_value=snapshot), patch("app.main.fetch_portfolio_announcements", return_value=[row, dict(row)]), patch("app.main._briefing_financial_results", return_value=[]), patch("app.main.interpret_evidence", return_value={"answer": "One filing was reviewed.", "mode": "evidence_only", "ai_generated": False, "verification": {"status": "not_applicable", "failures": [], "note": "Rule-based."}}):
+            response = self.client.post("/api/intelligence/briefing", json={"companies": [company]})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["coverage"]["announcements_reviewed"], 1)
+        self.assertEqual(len(data["developments"]), 1)
+        self.assertEqual(data["developments"][0]["category"], "results")
+        self.assertEqual(data["developments"][0]["source_verification"], "verified")
+        self.assertEqual(data["developments"][0]["source_url"], row["source_url"])
+
+    def test_briefing_reuses_existing_portfolio_market_snapshot(self):
+        from app.main import _briefing_market_rows
+        company = {"ticker": "TEST.NS", "company": "Test Ltd", "sector": "Industrials"}
+        cached = {"ticker": "TEST.NS", "name": "Test Ltd", "market_status": "available", "checked_at": "2026-11-15T10:00:00+00:00", "session_date": "2026-11-13", "price": 100, "previous_close": 100, "change_pct": 0, "volume_ratio_20d": 1, "unusual_price": False, "unusual_volume": False}
+        with patch("app.main._market_snapshot", side_effect=AssertionError("cached quote should be reused")) as market_snapshot:
+            rows = _briefing_market_rows([company], [cached], {"volume_multiple": 1.3, "price_move_pct": 4})
+        self.assertEqual(rows, [cached])
+        market_snapshot.assert_not_called()
 
     def test_company_comparison_requires_exact_shared_period_and_units(self):
         def reports(ticker, *_args):

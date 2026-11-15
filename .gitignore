@@ -35,3 +35,10 @@ coverage/
 !/data/reports/uploads/bacd1b3f-f496-4a97-ae52-63caf8d9da8a.pdf
 !/data/reports/uploads/fd676dd3-bb73-4339-a23e-143e557d7de2.pdf
 /work/
+
+/data/intelligence_briefings.json
+/backend/.alerts-pytest-tmp/
+/frontend/.alerts_final_check.mjs
+/frontend/.home_desktop_capture.mjs
+/frontend/.research_debug.mjs
+/frontend/.research_ui_check.mjs
