@@ -437,6 +437,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 720px) {
   .sidebar { display: none; }
   .main, .main.portfolio-page { height: auto; min-height: 100dvh; margin: 0; overflow: visible; display: block; padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .main.portfolio-page > .content { height: auto; min-height: 0; overflow: visible; margin: 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .main.research-page { height: auto; min-height: 100dvh; overflow: visible; }
   .main.research-page .content { height: auto; min-height: 0; overflow: visible; }
   .main.alerts-page { height: auto; min-height: 100dvh; overflow: visible; }
