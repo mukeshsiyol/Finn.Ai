@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "issuer_id": "RELIANCE.NS",
+      "portfolio_ticker": "RELIANCE.NS",
+      "canonical_name": "Reliance Industries",
+      "aliases": ["Reliance Industries Limited", "RIL"],
+      "nse_symbol": {
+        "value": "RELIANCE",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_175606_17072026194906_iXBRL_WEB.html"
+      },
+      "bse_scrip_code": {
+        "value": "500325",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/ixbrl/INTEGRATED_FILING_INDAS_175606_17072026194906_iXBRL_WEB.html"
+      },
+      "official_ir_domains": [
+        {
+          "domain": "ril.com",
+          "status": "verified",
+          "source_url": "https://www.ril.com/investors/investor-relations"
+        }
+      ]
+    },
+    {
+      "issuer_id": "research:titan",
+      "research_only_name": "Titan",
+      "canonical_name": "Titan Company Limited",
+      "aliases": ["Titan"],
+      "nse_symbol": {
+        "value": "TITAN",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/TITAN_08052026151617_SEoutcomeBMQ4202526.pdf"
+      },
+      "bse_scrip_code": {
+        "value": "500114",
+        "status": "verified",
+        "source_url": "https://nsearchives.nseindia.com/corporate/TITAN_08052026151617_SEoutcomeBMQ4202526.pdf"
+      },
+      "official_ir_domains": [
+        {
+          "domain": "titancompany.in",
+          "status": "verified",
+          "source_url": "https://www.titancompany.in/investors/investor-relations"
+        }
+      ]
+    }
+  ]
+}

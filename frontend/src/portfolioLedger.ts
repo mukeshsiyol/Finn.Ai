@@ -140,6 +140,31 @@ export function buildAccountHistory(transactions: PortfolioTransaction[], histor
   return result
 }
 
+export function calculateReturnCorrelations(histories: Record<string,{date:string;close:number}[]>, tickers: string[], minObservations = 20) {
+  const results: { ticker_a:string; ticker_b:string; company_a?:string; company_b?:string; correlation:number; observations:number; from:string; to:string }[] = []
+  const unique=[...new Set(tickers.map(ticker=>ticker.toUpperCase()))].slice(0,20)
+  for(let leftIndex=0;leftIndex<unique.length;leftIndex++) for(let rightIndex=leftIndex+1;rightIndex<unique.length;rightIndex++){
+    const left=histories[unique[leftIndex]]??[],right=histories[unique[rightIndex]]??[]
+    const rightByDate=new Map(right.map(point=>[point.date,point.close]))
+    const shared=left.filter(point=>rightByDate.has(point.date)).sort((a,b)=>a.date.localeCompare(b.date))
+    const returnsA:number[]=[],returnsB:number[]=[]
+    for(let index=1;index<shared.length;index++){
+      const prior=shared[index-1],current=shared[index],rightPrior=rightByDate.get(prior.date),rightCurrent=rightByDate.get(current.date)
+      const gap=(Date.parse(`${current.date}T00:00:00Z`)-Date.parse(`${prior.date}T00:00:00Z`))/86400000
+      if(gap>7||prior.close<=0||current.close<=0||!rightPrior||!rightCurrent||rightPrior<=0||rightCurrent<=0)continue
+      returnsA.push(current.close/prior.close-1);returnsB.push(rightCurrent/rightPrior-1)
+    }
+    if(returnsA.length<minObservations)continue
+    const meanA=returnsA.reduce((sum,value)=>sum+value,0)/returnsA.length,meanB=returnsB.reduce((sum,value)=>sum+value,0)/returnsB.length
+    const covariance=returnsA.reduce((sum,value,index)=>sum+(value-meanA)*(returnsB[index]-meanB),0)/(returnsA.length-1)
+    const varianceA=returnsA.reduce((sum,value)=>sum+(value-meanA)**2,0)/(returnsA.length-1),varianceB=returnsB.reduce((sum,value)=>sum+(value-meanB)**2,0)/(returnsB.length-1)
+    if(varianceA<=0||varianceB<=0)continue
+    const correlation=covariance/Math.sqrt(varianceA*varianceB)
+    results.push({ticker_a:unique[leftIndex],ticker_b:unique[rightIndex],correlation:Math.max(-1,Math.min(1,correlation)),observations:returnsA.length,from:shared[0].date,to:shared.at(-1)!.date})
+  }
+  return results.sort((a,b)=>Math.abs(b.correlation)-Math.abs(a.correlation)).slice(0,5)
+}
+
 export function loadPortfolioTransactions(): PortfolioTransaction[] {
   try {
     const existing = localStorage.getItem('finn-transactions-v1')

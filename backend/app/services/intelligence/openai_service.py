@@ -27,7 +27,7 @@ def ai_is_enabled() -> bool:
     if provider == "openrouter":
         return bool(os.getenv("OPENROUTER_API_KEY"))
     if provider == "openai":
-        return True
+        return bool(os.getenv("OPENAI_API_KEY"))
     if provider == "gemini":
         return bool(os.getenv("GEMINI_API_KEY"))
     if provider != "ollama":

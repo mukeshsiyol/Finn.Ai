@@ -29,11 +29,15 @@ def normalize_period(period: str) -> str:
 
 def _read(path: Path) -> list[dict]:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, json.JSONDecodeError):
-        return []
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=500, detail=f"Could not read {path.name}; existing research data was preserved.") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=500, detail=f"{path.name} has an invalid format; existing research data was preserved.")
+    return data
 
 
 def _save(path: Path, rows: list[dict]) -> None:
@@ -48,9 +52,11 @@ def _read_evidence() -> list[dict]:
         if EVIDENCE_PATH.exists():
             try:
                 payload = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
-                return payload if isinstance(payload, list) else []
-            except (OSError, json.JSONDecodeError):
-                return []
+            except (OSError, json.JSONDecodeError) as exc:
+                raise HTTPException(status_code=500, detail="The research evidence index could not be read. Existing data was preserved.") from exc
+            if not isinstance(payload, list):
+                raise HTTPException(status_code=500, detail="The research evidence index has an invalid format. Existing data was preserved.")
+            return payload
         financial_rows = _read(FINANCIALS_PATH)
         promise_rows = _read(PROMISES_PATH)
         evidence = []
@@ -92,7 +98,7 @@ def _document(document_id: str, ticker: str, page: int) -> dict:
         raise HTTPException(status_code=422, detail="The ticker must match the selected source document.")
     if page < 1 or page > int(doc["pages"]):
         raise HTTPException(status_code=422, detail=f"Source page must be between 1 and {doc['pages']}.")
-    return {"document_id": doc["id"], "company": doc.get("company"), "source_url": doc.get("source_url"), "filename": doc["filename"], "document_type": doc["document_type"], "reporting_period": doc["reporting_period"], "page": page}
+    return {"document_id": doc["id"], "company": doc.get("company"), "source_url": doc.get("source_url"), "filename": doc["filename"], "document_type": doc["document_type"], "reporting_period": doc["reporting_period"], "indexed_at": doc.get("indexed_at"), "page": page}
 
 
 def add_quarter(ticker: str, period: str, unit: str, page: int, excerpt: str, document_id: str, values: dict, statement_basis: str = "consolidated", figure_type: str = "reported", adjustment_note: str = "") -> list[dict]:

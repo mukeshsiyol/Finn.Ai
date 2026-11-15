@@ -44,7 +44,7 @@ def fetch_portfolio_announcements(companies: list[dict], window_hours: int = 24)
         details = str(_first(row, "details", "desc", "DETAILS", "attchmntText") or "")
         raw_date = str(_first(row, "dt", "broadcastDateTime", "broadcast_date_time", "date", "timestamp") or "")
         filed_at = _parse_nse_date(raw_date)
-        if filed_at is None or filed_at < start:
+        if filed_at is None or not start <= filed_at <= now:
             continue
         attachment = _first(row, "attchmntFile", "attachment", "ATTACHMENT", "url")
         if attachment:

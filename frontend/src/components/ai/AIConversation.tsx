@@ -101,7 +101,7 @@ export function AIConversation({ exchanges, citationHref }: Props) {
             <MarkdownAnswer answer={exchange.response.answer} sources={exchange.response.sources} citationHref={citationHref}/>
             <small className="ai-answer-note">Claims should be checked against the cited source passage.</small>
             {exchange.response.sources.map(source => <details className="source-citation" key={`${exchange.id}-${source.id}`}>
-              <summary><b>[{source.id}]</b> {exchange.response?.document?.company ?? 'Company source'}{exchange.response?.document?.ticker ? ` · ${exchange.response.document.ticker}` : ''} · {source.document_type} · {source.reporting_period} · p. {source.page}</summary>
+              <summary><b>[{source.id}]</b> {exchange.response?.document?.company ?? 'Company source'}{exchange.response?.document?.ticker ? ` · ${exchange.response.document.ticker}` : ''} · {source.document_type} · {source.reporting_period} · p. {source.page}{source.indexed_at?` · indexed ${source.indexed_at.slice(0,10)}`:''}</summary>
               <p className="ai-source-filename">{source.filename}</p>
               {citationHref(source) && <a href={citationHref(source)} target="_blank" rel="noreferrer">Open exact source page ↗</a>}
               <blockquote>{source.excerpt}</blockquote>

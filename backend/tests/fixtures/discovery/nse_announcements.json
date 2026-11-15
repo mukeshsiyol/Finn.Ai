@@ -1,0 +1,6 @@
+[
+  {"symbol":"RELIANCE","desc":"Financial Results for the quarter ended 30-Sep-2026","an_dt":"08-Nov-2026 18:00:00","seq_id":"NSE-FILING-101","attchmntFile":"https://nsearchives.nseindia.com/corporate/reliance_q2_fy27_results.pdf","attchmntText":"Quarterly financial results Q2 FY2026-27"},
+  {"symbol":"RELIANCE","desc":"Financial Results for the quarter ended 30-Sep-2026","an_dt":"08-Nov-2026 18:00:00","seq_id":"NSE-FILING-101","attchmntFile":"https://nsearchives.nseindia.com/corporate/reliance_q2_fy27_results.pdf","attchmntText":"Quarterly financial results Q2 FY2026-27"},
+  {"symbol":"OTHER","desc":"Financial Results Q2 FY2026-27","an_dt":"08-Nov-2026","seq_id":"WRONG-ISSUER","attchmntFile":"https://nsearchives.nseindia.com/corporate/other.pdf"},
+  {"symbol":"RELIANCE","desc":"Annual Financial Results for year ended 31-Mar-2026","an_dt":"25-Apr-2026","seq_id":"NSE-FILING-102","attchmntFile":"javascript:alert(1)"}
+]
